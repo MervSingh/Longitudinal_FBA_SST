@@ -1,0 +1,316 @@
+---
+title: 'Participant filtering based on Performance QC checks'
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+# APPLICATION OF CUT-OFFS TO THE CONTROL & ADHD BEHAVIOURAL DATA
+
+
+### STEP 1: SET UP ----------------------------------------
+
+```{R}
+# Set working directory to the EXG-analysis folder
+# setwd("/fs03/tg69/Mervyn/EXG3-analysis")
+```
+
+```{r, include=FALSE}
+# Load package libraries
+# Load packages
+source('Functions/sourcePkgs.R')
+```
+
+```{r, include=FALSE}
+# Load the EXG3 Model
+# source the DMC package from the folder
+source ("dmc/dmc.R")
+# load the EXG model
+load_model ("EXG-SS", "exgSSprobit.R")
+```
+
+
+# CONTROLS
+
+### STEP 2: DATA LOADING AND FORMAT ----------------------------------------
+
+```{r}
+
+# Load total performance datafiles for a single wave
+ctl_qc = read_xlsx("Total_PerformanceChecksOutput_MSv1+IF.xlsx")
+
+# Make all 'NAs" true Nas 
+ctl_qc[ctl_qc=="NA"]=NA
+
+# Split total dataframe into separate waves 
+ctl_w3 = ctl_qc[c(1:12)]
+ctl_w4 = ctl_qc[c(1:2,13:22)]
+ctl_w5 = ctl_qc[c(1:2,23:32)]
+
+
+# Omit all NAs
+ctl_w3_nm = na.omit(ctl_w3)
+ctl_w4_nm = na.omit(ctl_w4)
+ctl_w5_nm = na.omit(ctl_w5)
+```
+
+
+### STEP 3: FILTERING STAGES  ----------------------------------------
+
+Filter out IDs with bad:
+Bad IF plots
+Slowing of goRT > 300ms
+StopRR > .75
+
+```{r}
+# Wave 3
+
+ctl_w3_good = ctl_w3_nm %>%
+  filter(w3_Lowtrials==0) %>%
+  filter(w3_IfBad==0) %>%
+  filter(w3_Slow==0) %>%
+  filter(w3_HighStopRR==0)
+```
+```{r}
+# total number of subjects removed 
+nrow(ctl_w3_nm)-nrow(ctl_w3_good)
+```
+```{r}
+# identify IDs that were removed
+anti_join(ctl_w3_nm, ctl_w3_good, by="Subj")
+```
+
+```{r}
+# Wave 4
+
+ctl_w4_good = ctl_w4_nm %>%
+  filter(w4_Lowtrials==0) %>%
+  filter(w4_IfBad==0) %>%
+  filter(w4_Slow==0) %>%
+  filter(w4_HighStopRR==0)
+```
+```{r}
+# total number of subjects removed 
+nrow(ctl_w4_nm)-nrow(ctl_w4_good)
+```
+```{r}
+# identify IDs that were removed
+anti_join(ctl_w4_nm, ctl_w4_good, by="Subj")
+```
+
+```{r}
+# Wave 5
+
+ctl_w5_good = ctl_w5_nm %>%
+  filter(w5_Lowtrials==0) %>%
+  filter(w5_IfBad==0) %>%
+  filter(w5_Slow==0) %>%
+  filter(w5_HighStopRR==0)
+```
+```{r}
+# total number of subjects removed 
+nrow(ctl_w5_nm)-nrow(ctl_w5_good)
+```
+```{r}
+# identify IDs that were removed
+anti_join(ctl_w5_nm, ctl_w5_good, by="Subj")
+```
+
+
+\newpage
+
+
+# ADHD
+
+### STEP 5: DATA LOADING AND FORMAT ----------------------------------------
+
+```{r}
+
+# Load total performance datafiles for a single wave
+adhd_qc = read_xlsx("ADHD_Total_PerformanceChecksOutput_MSv1+IF.xlsx")
+
+# Make all 'NAs" true Nas 
+adhd_qc[adhd_qc=="NA"]=NA
+
+# Split total dataframe into separate waves 
+adhd_w3 = adhd_qc[c(1:12)]
+adhd_w4 = adhd_qc[c(1:2,13:22)]
+adhd_w5 = adhd_qc[c(1:2,23:32)]
+
+# Omit all NAs
+adhd_w3_nm = na.omit(adhd_w3)
+adhd_w4_nm = na.omit(adhd_w4)
+adhd_w5_nm = na.omit(adhd_w5)
+```
+
+
+### STEP 6: FILTERING STAGES  ----------------------------------------
+
+Filter out IDs with bad:
+Bad IF plots
+Slowing of goRT > 300ms
+StopRR > .75
+
+```{r}
+# Wave 3
+
+adhd_w3_good = adhd_w3_nm %>%
+  filter(w3_Lowtrials==0) %>%
+  filter(w3_IfBad==0) %>%
+  filter(w3_Slow==0) %>%
+  filter(w3_HighStopRR==0)
+```
+```{r}
+# total number of subjects removed 
+nrow(adhd_w3_nm)-nrow(adhd_w3_good)
+```
+```{r}
+# identify IDs that were removed
+anti_join(adhd_w3_nm, adhd_w3_good, by="Subj")
+```
+
+```{r}
+# Wave 4
+
+adhd_w4_good = adhd_w4_nm %>%
+  filter(w4_Lowtrials==0) %>%
+  filter(w4_IfBad==0) %>%
+  filter(w4_Slow==0) %>%
+  filter(w4_HighStopRR==0)
+```
+```{r}
+# total number of subjects removed 
+nrow(adhd_w4_nm)-nrow(adhd_w4_good)
+```
+```{r}
+# identify IDs that were removed
+anti_join(adhd_w4_nm, adhd_w4_good, by="Subj")
+```
+
+```{r}
+# Wave 5
+
+adhd_w5_good = adhd_w5_nm %>%
+  filter(w5_Lowtrials==0) %>%
+  filter(w5_IfBad==0) %>%
+  filter(w5_Slow==0) %>%
+  filter(w5_HighStopRR==0)
+```
+```{r}
+# total number of subjects removed 
+nrow(adhd_w5_nm)-nrow(adhd_w5_good)
+```
+```{r}
+# identify IDs that were removed
+anti_join(adhd_w5_nm, adhd_w5_good, by="Subj")
+```
+### STEP 7:WRITE OUT QC GOOD DATAFRAMES  ----------------------------------------
+
+```{r}
+# Controls 
+saveRDS(ctl_w3_good, "ctl_w3_qcgood.rds")
+saveRDS(ctl_w4_good, "ctl_w4_qcgood.rds")
+saveRDS(ctl_w5_good, "ctl_w5_qcgood.rds")
+
+# ADHD
+saveRDS(adhd_w3_good, "adhd_w3_qcgood.rds")
+saveRDS(adhd_w4_good, "adhd_w4_qcgood.rds")
+saveRDS(adhd_w5_good, "adhd_w5_qcgood.rds")
+```
+
+\newpage
+
+
+# FILTER ORIGINAL EXGDAT FILES ----------------------------------------
+
+```{r}
+loadRData <- function(fileName){
+#loads an RData file, and returns it
+    load(fileName)
+    get(ls()[ls() != "fileName"])
+}
+```
+
+```{r}
+# Load the ADHD and control exgdata files
+
+# Controls
+w3_exg_ctl = loadRData("/Users/cogneuro/Desktop/Merv-files/MERV-PROJECT/EXG3QC_v2/wave3/exgdat/w3_control_exgdat.Rdata")
+w4_exg_ctl = loadRData("/Users/cogneuro/Desktop/Merv-files/MERV-PROJECT/EXG3QC_v2/wave4/exgdat/w4_control_exgdat.Rdata")
+w5_exg_ctl = loadRData("/Users/cogneuro/Desktop/Merv-files/MERV-PROJECT/EXG3QC_v2/wave5/exgdat/w5_control_exgdat.Rdata")
+
+# ADHD
+w3_exg_adhd = loadRData("/Users/cogneuro/Desktop/Merv-files/MERV-PROJECT/EXG3QC_v2/wave3/exgdat/w3_adhd_exgdat.Rdata")
+w4_exg_adhd = loadRData("/Users/cogneuro/Desktop/Merv-files/MERV-PROJECT/EXG3QC_v2/wave4/exgdat/w4_adhd_exgdat.Rdata")
+w5_exg_adhd = loadRData("/Users/cogneuro/Desktop/Merv-files/MERV-PROJECT/EXG3QC_v2/wave5/exgdat/w5_adhd_exgdat.Rdata")
+
+```
+
+```{r}
+# Remove subjects from the EXG datasets that meet cutoff criteria - as filtered from the data above
+
+# Controls
+
+# wave 3
+final_w3_ctl_exg = w3_exg_ctl[(w3_exg_ctl$s %in% ctl_w3_good$Subj),]
+nrow(table(final_w3_ctl_exg$s))
+```
+```{r}
+# wave 4
+final_w4_ctl_exg = w4_exg_ctl[(w4_exg_ctl$s %in% ctl_w4_good$Subj),]
+nrow(table(final_w4_ctl_exg$s))
+```
+```{r}
+# wave 5
+final_w5_ctl_exg = w5_exg_ctl[(w5_exg_ctl$s %in% ctl_w5_good$Subj),]
+nrow(table(final_w5_ctl_exg$s))
+```
+
+```{r}
+
+# ADHD
+
+# wave 3
+final_w3_adhd_exg = w3_exg_adhd[(w3_exg_adhd$s %in% adhd_w3_good$Subj),]
+nrow(table(final_w3_adhd_exg$s))
+```
+```{r}
+# wave 4
+final_w4_adhd_exg = w4_exg_adhd[(w4_exg_adhd$s %in% adhd_w4_good$Subj),]
+nrow(table(final_w4_adhd_exg$s))
+```
+```{r}
+# wave 5
+final_w5_adhd_exg = w5_exg_adhd[(w5_exg_adhd$s %in% adhd_w5_good$Subj),]
+nrow(table(final_w5_adhd_exg$s))
+```
+
+### STEP 7: READ OUT FINAL EXGDATA FILES ----------------------------------------
+
+```{r}
+
+# Controls 
+saveRDS(final_w3_ctl_exg, "w3_ctl_exgdat_final.rds")
+saveRDS(final_w4_ctl_exg, "w4_ctl_exgdat_final.rds")
+saveRDS(final_w5_ctl_exg, "w5_ctl_exgdat_final.rds")
+
+# ADHD
+saveRDS(final_w3_adhd_exg, "w3_adhd_exgdat_final.rds")
+saveRDS(final_w4_adhd_exg, "w4_adhd_exgdat_final.rds")
+saveRDS(final_w5_adhd_exg, "w5_adhd_exgdat_final.rds")
+```
+
+
+### STEP 8: SAVE TOTAL DATAFILE  ----------------------------------------
+
+```{r}
+save.image("exg_filter_all.RData")
+```
+

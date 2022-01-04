@@ -1,0 +1,263 @@
+---
+title: 'EXG3 MODEL SET UP: ADHD AND CONTROLS'
+output:
+  pdf_document: default
+  word_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+# Wave 3 ADHD and CONTROLS
+
+## STEP 1: SET UP ----------------------------------------
+
+```{R}
+# Set working directory to the EXG-analysis folder
+# setwd("/fs03/tg69/Mervyn/EXG3-analysis")
+```
+
+```{r, include=FALSE}
+# Load package libraries
+# Load packages
+source('Functions/sourcePkgs.R')
+```
+
+```{r, include=FALSE}
+# Load the EXG3 Model
+# source the DMC package from the folder
+source ("dmc/dmc.R")
+# load the EXG model 
+load_model ("EXG-SS", "exgSSprobit.R")
+```
+
+We are going to be running separate models for each sample at each wave:
+
+EXG3 three-racer model (stop, go.true, go.false) + go failure + trigger failure (must remove px with no go errors)
+
+#### DATA PREP ----------------------------------------
+
+```{r}
+# EXG DATASETS
+
+# Load ADHD and CONTROL EXG datafiles
+
+# Controls
+exg_ctl_w3 = readRDS("w3_ctl_exgdat_final.rds")
+exg_ctl_w4 = readRDS("w4_ctl_exgdat_final.rds")
+exg_ctl_w5= readRDS("w5_ctl_exgdat_final.rds")
+
+#ADHD
+
+exg_adhd_w3 = readRDS("w3_adhd_exgdat_final.rds")
+exg_adhd_w4 = readRDS("w4_adhd_exgdat_final.rds")
+exg_adhd_w5 = readRDS("w5_adhd_exgdat_final.rds")
+```
+
+```{r}
+
+# Reformat subject vars into factors
+exg_adhd_w3$s = as.factor(exg_adhd_w3$s)
+exg_adhd_w4$s = as.factor(exg_adhd_w4$s)
+exg_adhd_w5$s = as.factor(exg_adhd_w5$s)
+
+exg_ctl_w3$s = as.factor(exg_ctl_w3$s)
+exg_ctl_w4$s = as.factor(exg_ctl_w4$s)
+exg_ctl_w5$s = as.factor(exg_ctl_w5$s)
+```
+
+```{r}
+# To ensure that we can estimate go mismatch parameters (mu.true, sig.true) in our model, we must remove all px with no go errors
+
+# Load up the Performance check dataframes
+
+# Controls
+qc_ctl_w3 = readRDS("./qcgood/ctl_w3_qcgood.rds")
+qc_ctl_w4 = readRDS("./qcgood/ctl_w4_qcgood.rds")
+qc_ctl_w5 = readRDS("./qcgood/ctl_w5_qcgood.rds")
+
+# ADHD
+qc_adhd_w3 = readRDS("./qcgood/adhd_w3_qcgood.rds")
+qc_adhd_w4 = readRDS("./qcgood/adhd_w4_qcgood.rds")
+qc_adhd_w5 = readRDS("./qcgood/adhd_w5_qcgood.rds")
+```
+
+```{r}
+# Filter out px with no go errors + rename Subj to "s" - to match the exgdat dataframe
+
+# Controls
+
+# Wave 3
+qc_gd_ctl_w3 = qc_ctl_w3 %>%
+  filter(w3_NoError==0) %>% 
+  dplyr::rename(s = c("Subj")) %>% 
+  mutate_at(vars('s'), as.factor)
+
+nrow(table(qc_gd_ctl_w3$s))
+```
+```{r}
+# Wave 4
+qc_gd_ctl_w4 = qc_ctl_w4 %>%
+  filter(w4_NoError==0) %>%
+  dplyr::rename(s = c("Subj")) %>%
+  mutate_at(vars('s'), as.factor)
+
+nrow(table(qc_gd_ctl_w4$s))
+```
+```{r}
+# Wave 5
+qc_gd_ctl_w5 = qc_ctl_w5 %>%
+  filter(w5_NoError==0) %>%
+  dplyr::rename(s = c("Subj")) %>% 
+  mutate_at(vars('s'), as.factor)
+
+nrow(table(qc_gd_ctl_w5$s))
+```
+
+```{r}
+# ADHD
+
+# Wave 3
+qc_gd_adhd_w3 = qc_adhd_w3 %>%
+  filter(w3_NoError==0) %>%
+  dplyr::rename(s = c("Subj")) %>% 
+  mutate_at(vars('s'), as.factor)
+
+nrow(table(qc_gd_adhd_w3$s))
+```
+```{r}
+# Wave 4
+qc_gd_adhd_w4 = qc_adhd_w4 %>%
+  filter(w4_NoError==0) %>%
+  dplyr::rename(s = c("Subj")) %>% 
+  mutate_at(vars('s'), as.factor)
+
+nrow(table(qc_gd_adhd_w4$s))
+```
+```{r}
+# Wave 5
+qc_gd_adhd_w5 = qc_adhd_w5 %>%
+  filter(w5_NoError==0) %>% 
+  dplyr::rename(s = c("Subj")) %>% 
+  mutate_at(vars('s'), as.factor)
+
+nrow(table(qc_gd_adhd_w5$s))
+```
+
+```{r}
+# Remove subjects from the EXG datasets
+
+# Controls
+
+# Wave 3
+exg3_ctl_w3 = merge(qc_gd_ctl_w3[c(2)], exg_ctl_w3)
+nrow(table(exg3_ctl_w3$s))
+```
+```{r}
+# Wave 4
+exg3_ctl_w4 = merge(qc_gd_ctl_w4[c(2)], exg_ctl_w4)
+nrow(table(exg3_ctl_w4$s))
+```
+```{r}
+# Wave 5
+exg3_ctl_w5 = merge(qc_gd_ctl_w5[c(2)], exg_ctl_w5)
+nrow(table(exg3_ctl_w5$s))
+```
+
+
+```{r}
+
+# ADHD
+
+# Wave 3
+exg3_adhd_w3 = merge(qc_gd_adhd_w3[c(2)], exg_adhd_w3)
+nrow(table(exg3_adhd_w3$s))
+```
+```{r}
+# Wave 4
+exg3_adhd_w4 = merge(qc_gd_adhd_w4[c(2)], exg_adhd_w4)
+nrow(table(exg3_adhd_w4$s))
+```
+```{r}
+# Wave 5
+exg3_adhd_w5 = merge(qc_gd_adhd_w5[c(2)], exg_adhd_w5)
+nrow(table(exg3_adhd_w5$s))
+```
+
+
+#### EXG3 SPECIFICATION ----------------------------------------
+
+```{r}
+
+is.tf <- TRUE
+is.gf <- TRUE
+use.staircase <- TRUE
+
+if (is.tf & is.gf) {
+
+  model <- model.dmc(
+    # SS stands for trial type (GO or Stop-signal [SS]):
+    factors=list(S=c("s1","s2"),SS=c("go","stop")),
+    # NR stands for "No response", i.e., go omission & successful inhibitions:
+    responses=c("NR","r1","r2"),
+    # Match scores correct responses for each GO stimulus as usual, and also scores
+    # the "correct" stimulus corresponding to an NR response, but the latter has
+    # no effect (it just avoids a standard check making sure that each response is scored):
+    match.map=list(M=list(s1="r1",s2="r2",s1="NR")),
+    p.map=list(mu="M",sigma="M",tau="M",tf="1",muS="1",sigmaS="1",tauS="1",gf="1"),
+    type="exgss")
+  }
+
+
+# Combine model and data into "mdi" file
+
+# controls
+ctl.w3.model2 <- data.model.dmc(exg3_ctl_w3,model)
+ctl.w4.model2 <- data.model.dmc(exg3_ctl_w4,model)
+ctl.w5.model2 <- data.model.dmc(exg3_ctl_w5,model)
+
+# ADHD
+adhd.w3.model2 <- data.model.dmc(exg3_adhd_w3,model)
+adhd.w4.model2 <- data.model.dmc(exg3_adhd_w4,model)
+adhd.w5.model2 <- data.model.dmc(exg3_adhd_w5,model)
+
+
+# Select priors
+
+# Specify priors for individual-level model parameters. These will
+# be used for initial "fixed effects" fits, but not for the main
+# hierarchical analysis.
+# All priors are truncated normal distributions
+
+p.vector <- attributes(model)$p.vector
+p1 <- p.vector; p1[1:length(p1)] <- c(.5,.5,.1,.1,.1,.1,-1.5,.5,.1,.1,-1.5)
+p.prior <- prior.p.dmc(
+  dists = rep("tnorm",length(p.vector)),p1=p1,p2=rep(1,length(p.vector)),
+  lower=c(rep(0,6),NA,rep(0,3),NA),upper=c(2,2,.5,.5,.5,.5,NA,2,.5,.5,NA))
+
+# Plot priors to make sure they look reasonable
+ par(mfcol=c(2,5)); for (i in names(p.prior)) plot.prior(i,p.prior)
+   
+```
+```{r}
+
+# Write out Models
+
+dir.create("./exg3_models")
+
+saveRDS(ctl.w3.model2, "./exg3_models/ctl.w3.model2.rds")
+saveRDS(ctl.w4.model2, "./exg3_models/ctl.w4.model2.rds")
+saveRDS(ctl.w5.model2, "./exg3_models/ctl.w5.model2.rds")
+
+saveRDS(adhd.w3.model2, "./exg3_models/adhd.w3.model2.rds")
+saveRDS(adhd.w4.model2, "./exg3_models/adhd.w4.model2.rds")
+saveRDS(adhd.w5.model2, "./exg3_models/adhd.w5.model2.rds")
+```
+
+```{r}
+save.image("exg3_modelling.RData")
+```

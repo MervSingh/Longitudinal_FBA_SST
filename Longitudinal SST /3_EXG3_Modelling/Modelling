@@ -1,0 +1,17 @@
+# Code used to fit the QA'ed SST data to a three-racer ex-Gaussian distribution (EXG3). 
+
+# the EXG3 is cognitive modelling paradigm that estimates separate parameters (mu, sigma & tau) for the following:
+
+1. Correct Go-trial responses
+2. Incorrect Go-trial responses
+3. SSRTs on Stop-trials
+
+# In addition, the exg3 also models the
+# probability of trigger failures (instances where the 'stop' process is not triggered on Stop-trials) and
+# go failures (omissions on go-trials)
+
+# All 11 parameters were estimated for each subject
+
+
+# Further, we excluded participants that reported no go errors (i.e., 100% accuracy on go trials)
+# to ensure that go mismatch parameters could be adequately estimated in our model.

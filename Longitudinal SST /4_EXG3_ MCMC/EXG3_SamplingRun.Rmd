@@ -1,0 +1,294 @@
+---
+title: 'EXG3 model2 SAMPLING'
+output:
+  pdf_document: default
+  word_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+# Wave 3 ADHD and CONTROLS
+
+## STEP 1: SET UP ----------------------------------------
+
+```{R}
+# Set working directory to the EXG-analysis folder
+# setwd("/fs03/tg69/Mervyn/EXG3-analysis")
+```
+
+```{r, include=FALSE}
+# Load package libraries
+# Load packages
+source('Functions/sourcePkgs.R')
+```
+
+```{r, include=FALSE}
+# Load the EXG3 model2
+# source the DMC package from the folder
+source ("dmc/dmc.R")
+# load the EXG model2 
+load_model("EXG-SS", "exgSSprobit.R")
+cores=12
+```
+
+## EXG3: model2 RUNS ----------------------------------------
+
+
+```{r}
+
+# Load ADHD and CONTROL EXG3 model2 files
+
+load("./exg3_modelling.Rdata")
+
+
+# Initialise samples level objects and generate plausible start values for MCMC
+
+# Controls 
+
+exg3.samples.ctl.w3 <- h.samples.dmc(nmc = 500, p.prior=p.prior, 
+                               data=ctl.w3.model2)
+
+exg3.samples.ctl.w4 <- h.samples.dmc(nmc = 500, p.prior=p.prior, 
+                               data=ctl.w4.model2)
+
+exg3.samples.ctl.w5 <- h.samples.dmc(nmc = 500, p.prior=p.prior, 
+                               data=ctl.w5.model2)
+
+
+# ADHD
+
+exg3.samples.adhd.w3 <- h.samples.dmc(nmc = 500, p.prior=p.prior, 
+                                     data=adhd.w3.model2)
+
+exg3.samples.adhd.w4 <- h.samples.dmc(nmc = 500, p.prior=p.prior, 
+                                     data=adhd.w4.model2)
+
+exg3.samples.adhd.w5 <- h.samples.dmc(nmc = 500, p.prior=p.prior, 
+                                     data=adhd.w5.model2)
+
+
+# save initial samples
+
+dir.create("./exg3_StartSamples")
+save(exg3.samples.ctl.w3,
+     exg3.samples.ctl.w4,
+     exg3.samples.ctl.w5,
+     exg3.samples.adhd.w3,
+     exg3.samples.adhd.w4,
+     exg3.samples.adhd.w5,
+     file = "./exg3_StartSamples/exg3_StartSamples.Rdata")
+```
+
+
+```{r}
+# Phase 1
+# Run an initial 500 iterations with migration on
+
+dir.create("./exg3_mcmc")
+
+# Controls
+
+# Wave 3
+exg3.samples.ctl.w3 <- h.run.dmc(samples=exg3.samples.ctl.w3, cores=cores, report=1, p.migrate=0.05)
+save(ctl.w3.model2, exg3.samples.ctl.w3, file="./exg3_mcmc/exg3_w3_ctl_Phase1.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.ctl.w3,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w3)
+```
+```{r}
+# Wave 4
+exg3.samples.ctl.w4 <- h.run.dmc(samples=exg3.samples.ctl.w4, cores=cores, report=1, p.migrate=0.05)
+save(ctl.w4.model2, exg3.samples.ctl.w4, file="./exg3_mcmc/exg3_w4_ctl_Phase1.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.ctl.w4,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w4)
+```
+```{r}
+# Wave 5
+exg3.samples.ctl.w5 <- h.run.dmc(samples=exg3.samples.ctl.w5, cores=cores, report=1, p.migrate=0.05)
+save(ctl.w5.model2, exg3.samples.ctl.w5, file="./exg3_mcmc/exg3_w5_ctl_Phase1.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.ctl.w5,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w5)
+```
+
+
+```{r}
+# ADHD
+
+# Wave 3
+exg3.samples.adhd.w3 <- h.run.dmc(samples=exg3.samples.adhd.w3, cores=cores, report=1, p.migrate=0.05)
+save(adhd.w3.model2, exg3.samples.adhd.w3, file="./exg3_mcmc/exg3_w3_adhd_Phase1.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.adhd.w3,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w3)
+```
+```{r}
+# Wave 4
+exg3.samples.adhd.w4 <- h.run.dmc(samples=exg3.samples.adhd.w4, cores=cores, report=1, p.migrate=0.05)
+save(adhd.w4.model2, exg3.samples.adhd.w4, file="./exg3_mcmc/exg3_w4_adhd_Phase1.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.adhd.w4,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w4)
+```
+```{r}
+# Wave 5
+exg3.samples.adhd.w5 <- h.run.dmc(samples=exg3.samples.adhd.w5, cores=cores, report=1, p.migrate=0.05)
+save(adhd.w5.model2, exg3.samples.adhd.w5, file="./exg3_mcmc/exg3_w5_adhd_Phase1.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.adhd.w5,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w5)
+```
+
+```{r}
+# save total file
+save.image("exg3_modelRunsP1.RData")
+```
+
+
+
+```{r}
+# Phase 2
+# Run an additional 500 iterations with migration off and unstuck 
+
+# Controls
+
+# Wave 3
+exg3.samples.ctl.w3 <- h.run.unstuck.dmc(samples=exg3.samples.ctl.w3, cores=cores, report=1,verbose=TRUE)
+save(ctl.w3.model2, exg3.samples.ctl.w3, file="./exg3_mcmc/exg3_w3_ctl_Phase2.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.ctl.w3,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w3)
+```
+```{r}
+# Wave 4
+exg3.samples.ctl.w4 <- h.run.unstuck.dmc(samples=exg3.samples.ctl.w4, cores=cores, report=1, verbose=TRUE)
+save(ctl.w4.model2, exg3.samples.ctl.w4, file="./exg3_mcmc/exg3_w4_ctl_Phase2.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.ctl.w4,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w4)
+```
+```{r}
+# Wave 5
+exg3.samples.ctl.w5 <- h.run.unstuck.dmc(samples=exg3.samples.ctl.w5, cores=cores, report=1, verbose=TRUE)
+save(ctl.w5.model2, exg3.samples.ctl.w5, file="./exg3_mcmc/exg3_w5_ctl_Phase2.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.ctl.w5,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w5)
+```
+
+
+```{r}
+# ADHD
+
+# Wave 3
+exg3.samples.adhd.w3 <- h.run.unstuck.dmc(samples=exg3.samples.adhd.w3, cores=cores, report=1, verbose=TRUE)
+save(adhd.w3.model2, exg3.samples.adhd.w3, file="./exg3_mcmc/exg3_w3_adhd_Phase2.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.adhd.w3,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w3)
+```
+```{r}
+# Wave 4
+exg3.samples.adhd.w4 <- h.run.unstuck.dmc(samples=exg3.samples.adhd.w4, cores=cores, report=1, verbose=TRUE)
+save(adhd.w4.model2, exg3.samples.adhd.w4, file="./exg3_mcmc/exg3_w4_adhd_Phase2.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.adhd.w4,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w4)
+```
+```{r}
+# Wave 5
+exg3.samples.adhd.w5 <- h.run.unstuck.dmc(samples=exg3.samples.adhd.w5, cores=cores, report=1, verbose=TRUE)
+save(adhd.w5.model2, exg3.samples.adhd.w5, file="./exg3_mcmc/exg3_w5_adhd_Phase2.RData")
+# check model2 diagnostics
+plot.dmc(exg3.samples.adhd.w5,pll.chain=F,start=200,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w5)
+```
+
+
+```{r}
+# save total file
+save.image("exg3_modelRunsP2.RData")
+```
+
+
+```{r}
+# Phase 3
+load("exg3_modelRunsP2.RData")
+
+# Run an additional 200 iterations with h.run.converge
+# Controls
+# Wave 3
+exg3.samples.ctl.w3.1 <- h.run.converge.dmc(samples=h.samples.dmc(samples=exg3.samples.ctl.w3,nmc=200,thin=25),
+                                            thorough = TRUE, cores=cores, report=1, verbose=TRUE, finalrun = TRUE, finalI = 250, max.try = 4)
+
+save(ctl.w3.model2,exg3.samples.ctl.w3.1,file="./exg3_mcmc/exg3_w3_ctl_Phase3.RData")
+# check model diagnostics
+plot.dmc(exg3.samples.ctl.w3.1,pll.chain=F,start=1,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w3.1,split=F)
+
+
+# Wave 4
+exg3.samples.ctl.w4.1 <- h.run.converge.dmc(samples=h.samples.dmc(samples=exg3.samples.ctl.w4,nmc=200,thin=25),
+                                            thorough = TRUE, cores=cores, report=1, verbose=TRUE, finalrun = TRUE, finalI = 250, max.try = 4)
+
+save(ctl.w4.model2,exg3.samples.ctl.w4.1,file="./exg3_mcmc/exg3_w4_ctl_Phase3.RData")
+# check model diagnostics
+plot.dmc(exg3.samples.ctl.w4.1,pll.chain=F,start=1,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w4.1,split=F)
+
+
+# Wave 5
+exg3.samples.ctl.w5.1 <- h.run.converge.dmc(samples=h.samples.dmc(samples=exg3.samples.ctl.w5,nmc=200,thin=25),
+                                            thorough = TRUE, cores=cores, report=1, verbose=TRUE, finalrun = TRUE, finalI = 250, max.try = 4)
+
+save(ctl.w5.model2, exg3.samples.ctl.w5.1, file="./exg3_mcmc/exg3_w5_ctl_Phase3.RData")
+# check model diagnostics
+plot.dmc(exg3.samples.ctl.w5.1,pll.chain=F,start=1,subject=1)
+gelman.diag.dmc(exg3.samples.ctl.w5.1,split=F)
+
+# save total file
+save.image("exg3_modelRunsP3_controls.RData")
+```
+
+
+```{r}
+# ADHD
+# Wave 3
+exg3.samples.adhd.w3.1 <- h.run.converge.dmc(samples=h.samples.dmc(samples=exg3.samples.adhd.w3,nmc=200,thin=25),
+                                             thorough = TRUE, cores=cores, report=1, verbose=TRUE, finalrun = TRUE, finalI = 250, max.try = 4)
+
+save(adhd.w3.model2, exg3.samples.adhd.w3.1, file="./exg3_mcmc/exg3_w3_adhd_Phase3.RData")
+
+# check model diagnostics
+plot.dmc(exg3.samples.adhd.w3.1,pll.chain=F,start=1,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w3.1,split=F)
+
+
+# Wave 4
+exg3.samples.adhd.w4.1 <- h.run.converge.dmc(samples=h.samples.dmc(samples=exg3.samples.adhd.w4,nmc=200,thin=25),
+                                             thorough = TRUE, cores=cores, report=1, verbose=TRUE, finalrun = TRUE, finalI = 250, max.try = 4)
+
+save(adhd.w4.model2, exg3.samples.adhd.w4.1, file="./exg3_mcmc/exg3_w4_adhd_Phase3.RData")
+# check model diagnostics
+plot.dmc(exg3.samples.adhd.w4.1,pll.chain=F,start=1,subject=1)
+gelman.diag.dmc(exg3.samples.adhd.w4.1,split=F)
+
+
+# Wave 5
+exg3.samples.adhd.w5.1 <- h.run.converge.dmc(samples=h.samples.dmc(samples=exg3.samples.adhd.w5,nmc=200,thin=25),
+                                             thorough = TRUE, cores=cores, report=1, verbose=TRUE, finalrun = TRUE, finalI = 250, max.try = 4)
+
+save(adhd.w5.model2, exg3.samples.adhd.w5.1, file="./exg3_mcmc/exg3_w5_adhd_Phase3.RData")
+# check model diagnostics
+plot.dmc(exg3.samples.adhd.w5.1,pll.chain=F,start=1)
+gelman.diag.dmc(exg3.samples.adhd.w5.1,split=F)
+
+# save total file
+save.image("exg3_modelRunsP3_ADHD.RData")
+```

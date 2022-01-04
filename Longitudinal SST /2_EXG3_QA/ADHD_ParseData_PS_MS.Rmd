@@ -1,0 +1,880 @@
+---
+title: 'Stop-Signal Performance Checks'
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+
+# ADHD GROUP
+
+## STEP 1: SET UP ----------------------------------------
+
+```{R}
+# Set working directory to the EXG-analysis folder
+# setwd("/fs03/tg69/Mervyn/EXG3-analysis")
+```
+
+```{r, include=FALSE}
+# Load package libraries
+# Load packages
+source('Functions/sourcePkgs.R')
+```
+
+```{r, include=FALSE}
+# Load the EXG3 Model
+# source the DMC package from the folder
+source ("dmc/dmc.R")
+# load the EXG model
+load_model ("EXG-SS", "exgSSprobit.R")
+```
+
+# WAVE 3
+
+
+## STEP 2: DATA LOADING AND FORMAT ----------------------------------------
+
+```{r}
+# EXG DATASETS
+
+# Load adhd EXG datafiles for a single wave
+load("wave3/exgdat/w3_adhd_exgdat.RData")
+
+# Dataframe structural checks:
+# display the internal structure the dataframe
+str(adhd_w3_dat)     
+# if NR is not designated as the first-level factor in the "R" column
+# uncomment the next few lines to reorder the factor:
+# adhd_w#_dat$R <- relevel(sizes, "NR")
+# check to see if the reordering is successful
+# str(adhd_w#_dat)
+```
+
+```{r}
+# Create a dataframe that contains a single variable, each unique subjects name
+# This is a pre-allocation for our performance check data.
+w3_PerformanceChecks <- data.frame(Subj = unique(adhd_w3_dat$s))
+```
+
+
+## STEP 3: INDIVIDUAL QC OF SST PERFORMANCE ----------------------------------------
+
+### Trial Numbers
+```{r}
+# Check how many observations per ID: each subject should have 192 (complete SST)
+table(adhd_w3_dat$s)
+```
+```{r}
+# Print out subjects that do not have 192 obs - may be salvigable if there is only a few trials missing.
+w3_Lowtrials = table(adhd_w3_dat$s)[table(adhd_w3_dat$s)!=192] # Collect all subjects that do not have 192 trials
+
+# Apply the nrow function across each of the above subjects to see how many trials they actuall have.
+sapply(names(w3_Lowtrials), function(x) nrow(adhd_w3_dat[adhd_w3_dat$s == x,]))
+
+## No low trials
+```
+
+
+```{r}
+## Don't remove yet, just mark them
+w3_PerformanceChecks$w3_Lowtrials <- 0 # Pre-allocate the variable
+
+# Assign participants with low no of  trials a 1 (or TRUE)
+w3_PerformanceChecks$w3_Lowtrials[w3_PerformanceChecks$Subj %in% names(w3_Lowtrials)] <- 1
+
+```
+
+### Go RT Checks
+```{r}
+# Plot go RT distribution;
+# P(NA) = Probability of go omission;
+# Accuracy is computed as correct go/(all go - go omissions):
+w3_adhd_correct <- as.numeric(adhd_w3_dat$S)==(as.numeric(adhd_w3_dat$R)-1)
+layout(1)
+plot.cell.density(adhd_w3_dat[adhd_w3_dat$SS=="go",],
+                  C=w3_adhd_correct[adhd_w3_dat$SS=="go"],
+                  xlim=c(0,5),ymax=5,main="Go RTs")
+
+```
+
+```{r}
+## Plot histogram of data focusing on short RT
+hist(adhd_w3_dat$RT[adhd_w3_dat$SS=="go" & adhd_w3_dat$RT<.300],
+     main = "Fast RT Histogram", xlab = "RT (s)")
+```
+```{r}
+# How are these fast RT's spread across participants?
+table(adhd_w3_dat$s[adhd_w3_dat$SS=="go" & adhd_w3_dat$RT<.300])
+
+# Fairly evenly spread, not outliers except outliers at 208(54); 416(56); 550(37); 1105(42); 1264(22); 5709(24); 6246(31); 6461(21)
+```
+```{r}
+# Let's code this properly - cut off at 10% of total trials for instance. (i.e., 19.2)
+w3_Fastgos = table(adhd_w3_dat$s[adhd_w3_dat$SS=="go" & adhd_w3_dat$RT<.150])[table(adhd_w3_dat$s[adhd_w3_dat$SS=="go" & adhd_w3_dat$RT<.150])>19.2] # Again, mark the participant names that concern us.
+# Print out names and numbers
+w3_Fastgos
+## 416(20 nosignal trials should go?)
+```
+```{r}
+w3_PerformanceChecks$w3_Fastgos <- 0 # Pre allocate variable
+w3_PerformanceChecks$w3_Fastgos[w3_PerformanceChecks$Subj %in% names(w3_Fastgos)] <- 1 # Mark poorly performing participants
+
+```
+
+
+
+```{r}
+# Overall accuracy (i.e., all trials-(errors + omission)
+tapply(as.numeric(adhd_w3_dat$S) == (as.numeric(adhd_w3_dat$R) - 1),
+       adhd_w3_dat$SS,
+       mean,
+       na.rm = TRUE)["go"]
+```
+```{r}
+# Collect the subjects that have no rates of errors or omissions as per your adhd_IM dataframe.
+# read in csv file of the IM data
+w3_adhd_IM = read.csv("wave3/ssrtIM/w3_adhd_Results_uncleaned.csv")
+w3_NoError <- w3_adhd_IM$subject[(w3_adhd_IM$w3_goERR*100)==0]
+w3_NoOmm   <- w3_adhd_IM$subject[(w3_adhd_IM$w3_goPmiss*100)==0]
+```
+```{r}
+# Collect the subjects that have High rates of errors or omissions as per your adhd_IM dataframe.
+w3_HighError <- w3_adhd_IM$subject[(w3_adhd_IM$w3_goERR*100)>20]
+w3_HighOmm   <- w3_adhd_IM$subject[(w3_adhd_IM$w3_goPmiss*100)>20]
+```
+```{r}
+# Pre allocate
+w3_PerformanceChecks$w3_NoError   <- 0
+w3_PerformanceChecks$w3_NoOmm     <- 0
+w3_PerformanceChecks$w3_HighError <- 0
+w3_PerformanceChecks$w3_HighOmm   <- 0
+
+# Marked subjects
+w3_PerformanceChecks$w3_NoError[w3_PerformanceChecks$Subj %in% w3_NoError] <- 1
+w3_PerformanceChecks$w3_NoOmm[w3_PerformanceChecks$Subj %in% w3_NoOmm] <- 1
+w3_PerformanceChecks$w3_HighError[w3_PerformanceChecks$Subj %in% w3_HighError] <-
+  1
+w3_PerformanceChecks$w3_HighOmm[w3_PerformanceChecks$Subj %in% w3_HighOmm] <- 1
+
+```
+
+
+### Stop Trial Performance
+
+```{r}
+# Create a list to store mean and median SSD values
+w3_PxSSD <- list()
+w3_PxSSD[["Mean"]] <- lapply(unique(adhd_w3_dat$s),
+                          function(x)
+                            mean(adhd_w3_dat$SSD[adhd_w3_dat$SS == 'stop' &
+                                                  adhd_w3_dat$s == x], na.rm = T))
+w3_PxSSD[["Median"]] <- lapply(unique(adhd_w3_dat$s),
+                          function(x)
+                            median(adhd_w3_dat$SSD[adhd_w3_dat$SS == 'stop' &
+                                                  adhd_w3_dat$s == x], na.rm = T))
+# Create dataframe of SSD to look at average SSD per participants and skew (i.e., difference between mean and median)
+w3_SSD_Data <- as.data.frame(lapply(w3_PxSSD, unlist))
+w3_SSD_Data$Subj <- unique(adhd_w3_dat$s)
+w3_SSD_Data$Diff <- w3_SSD_Data[1] - w3_SSD_Data[2]
+
+w3_SSD_Data #.
+```
+```{r}
+# Display group means and +/- 3SD
+mean(w3_SSD_Data$Mean)
+sd(w3_SSD_Data$Mean)
+mean(w3_SSD_Data$Mean) + (3*sd(w3_SSD_Data$Mean))
+mean(w3_SSD_Data$Mean) - (3*sd(w3_SSD_Data$Mean))
+
+# Histogram of an outlying participant
+```
+```{r}
+## Now printout hist and IF for each participant
+# Small function to plot histogram and IF to jpeg for each participant
+dir.create("w3_adhd_Output")
+SST_StopPerf <- function(data, subject) {
+  jpeg(
+    paste(getwd(),"/w3_adhd_Output/", subject, "_w3_StopPerformance.jpg", sep = ""),
+    width = 800,
+    height = 800
+  )
+  layout(matrix(1:2, 2))
+  
+  hist(data$SSD,main = paste("Stop Performance of Subject: ",subject,sep = ""),
+       xlab = "SSD (s)")
+  plot_SS_if.dmc(data)
+  
+  dev.off()
+}
+
+# Run function across participants
+for (i in unique(adhd_w3_dat$s)){
+  
+  SST_StopPerf(adhd_w3_dat[adhd_w3_dat$s==i,],i)
+
+  
+}
+
+```
+
+```{r}
+# Show the number of trials for each SSD:
+# adhd_Ns = tapply(adhd_w3_dat$RT,adhd_w3_dat$SSD,length)
+# adhd_Ns
+```
+
+```{r}
+# Show response rate:
+
+# Loop through participants and calculate Stop RR
+w3_StopRR <- list()
+for (i in unique(adhd_w3_dat$s)) {
+  w3_data <- adhd_w3_dat[adhd_w3_dat$s == i, ]
+  w3_StopRR[[i]] <- tapply(!is.na(w3_data$RT), w3_data[, c("SS")], mean)[2]
+  
+}
+
+w3_StopRR[sapply(w3_StopRR,is.null)] <- NULL
+names(w3_StopRR) <- unique(adhd_w3_dat$s)
+```
+```{r}
+# Plot RR as a histogram
+hist(data.frame(unlist(w3_StopRR))$unlist.w3_StopRR,
+     main = "Histogram of mean Stop RR across sample",
+     xlab = "Stop Response Rate")
+```
+```{r}
+# Who are the people above .75?
+w3_HighStopRR <- names(w3_StopRR)[w3_StopRR>.75]
+```
+```{r}
+# Pre allocate
+w3_PerformanceChecks$w3_HighStopRR <- 0
+w3_PerformanceChecks$w3_HighStopRR[w3_PerformanceChecks$Subj %in% w3_HighStopRR] <- 1 # Mark subjects.
+
+```
+
+
+\newpage
+
+
+# Wave 4
+
+## STEP 2: DATA LOADING AND FORMAT ----------------------------------------
+
+```{r}
+# EXG DATASETS
+
+# Load adhd EXG datafiles for a single wave
+load("wave4/exgdat/w4_adhd_exgdat.RData")
+
+# Dataframe structural checks:
+# display the internal structure the dataframe
+str(adhd_w4_dat)     
+# if NR is not designated as the first-level factor in the "R" column
+# uncomment the next few lines to reorder the factor:
+# adhd_w#_dat$R <- relevel(sizes, "NR")
+# check to see if the reordering is successful
+# str(adhd_w#_dat)
+```
+
+```{r}
+# Create a dataframe that adhdtains a single variable, each unique subjects name
+# This is a pre-allocation for our performance check data.
+w4_PerformanceChecks <- data.frame(Subj = unique(adhd_w4_dat$s))
+```
+
+
+## STEP 3: INDIVIDUAL QC OF SST PERFORMANCE ----------------------------------------
+
+### Trial Numbers
+```{r}
+# Check how many observations per ID: each subject should have 192 (complete SST)
+table(adhd_w4_dat$s)
+```
+```{r}
+# Print out subjects that do not have 192 obs - may be salvigable if there is only a few trials missing.
+w4_Lowtrials = table(adhd_w4_dat$s)[table(adhd_w4_dat$s)!=192] # Collect all subjects that do not have 192 trials
+
+# Apply the nrow function across each of the above subjects to see how many trials they actuall have.
+sapply(names(w4_Lowtrials), function(x) nrow(adhd_w4_dat[adhd_w4_dat$s == x,]))
+
+# 2429(64 trials)
+
+```
+
+
+```{r}
+## Don't remove yet, just mark them
+w4_PerformanceChecks$w4_Lowtrials <- 0 # Pre-allocate the variable
+# Assign participants with low no of  trials a 1 (or TRUE)
+w4_PerformanceChecks$w4_Lowtrials[w4_PerformanceChecks$Subj %in% names(w4_Lowtrials)] <- 1
+```
+
+### Go RT Checks
+```{r}
+# Plot go RT distribution;
+# P(NA) = Probability of go omission;
+# Accuracy is computed as correct go/(all go - go omissions):
+w4_adhd_correct <- as.numeric(adhd_w4_dat$S)==(as.numeric(adhd_w4_dat$R)-1)
+layout(1)
+plot.cell.density(adhd_w4_dat[adhd_w4_dat$SS=="go",],
+                  C=w4_adhd_correct[adhd_w4_dat$SS=="go"],
+                  xlim=c(0,5),ymax=5,main="Go RTs")
+
+```
+
+```{r}
+## Plot histogram of data focusing on short RT
+hist(adhd_w4_dat$RT[adhd_w4_dat$SS=="go" & adhd_w4_dat$RT<.300],
+     main = "Fast RT Histogram", xlab = "RT (s)")
+```
+```{r}
+# How are these fast RT's spread across participants?
+table(adhd_w4_dat$s[adhd_w4_dat$SS=="go" & adhd_w4_dat$RT<.300])
+
+# Fairly evenly spread 14490 might be outlier (47)
+```
+```{r}
+# Let's code this properly - cut off at 10% of total trials for instance. (i.e., 19.2)
+w4_Fastgos = table(adhd_w4_dat$s[adhd_w4_dat$SS=="go" & adhd_w4_dat$RT<.150])[table(adhd_w4_dat$s[adhd_w4_dat$SS=="go" & adhd_w4_dat$RT<.150])>19.2] # Again, mark the participant names that adhdcern us.
+# Print out names and numbers
+w4_Fastgos
+#no fastgos
+```
+```{r}
+w4_PerformanceChecks$w4_Fastgos <- 0 # Pre allocate variable
+w4_PerformanceChecks$w4_Fastgos[w4_PerformanceChecks$Subj %in% names(w4_Fastgos)] <- 1 # Mark poorly performing participants
+
+```
+
+
+```{r}
+# Overall accuracy (i.e., all trials-(errors + omission)
+tapply(as.numeric(adhd_w4_dat$S) == (as.numeric(adhd_w4_dat$R) - 1),
+       adhd_w4_dat$SS,
+       mean,
+       na.rm = TRUE)["go"]
+```
+```{r}
+# Collect the subjects that have no rates of errors or omissions as per your adhd_IM dataframe.
+# read in csv file of the IM data
+w4_adhd_IM = read.csv("wave4/ssrtIM/w4_adhd_Results_uncleaned.csv")
+w4_NoError <- w4_adhd_IM$subject[(w4_adhd_IM$w4_goERR*100)==0]
+w4_NoOmm   <- w4_adhd_IM$subject[(w4_adhd_IM$w4_goPmiss*100)==0]
+```
+```{r}
+# Collect the subjects that have High rates of errors or omissions as per your adhd_IM dataframe.
+w4_HighError <- w4_adhd_IM$subject[(w4_adhd_IM$w4_goERR*100)>20]
+w4_HighOmm   <- w4_adhd_IM$subject[(w4_adhd_IM$w4_goPmiss*100)>20]
+```
+```{r}
+# Pre allocate
+w4_PerformanceChecks$w4_NoError   <- 0
+w4_PerformanceChecks$w4_NoOmm     <- 0
+w4_PerformanceChecks$w4_HighError <- 0
+w4_PerformanceChecks$w4_HighOmm   <- 0
+
+# Marked subjects
+w4_PerformanceChecks$w4_NoError[w4_PerformanceChecks$Subj %in% w4_NoError] <- 1
+w4_PerformanceChecks$w4_NoOmm[w4_PerformanceChecks$Subj %in% w4_NoOmm] <- 1
+w4_PerformanceChecks$w4_HighError[w4_PerformanceChecks$Subj %in% w4_HighError] <-
+  1
+w4_PerformanceChecks$w4_HighOmm[w4_PerformanceChecks$Subj %in% w4_HighOmm] <- 1
+
+```
+
+
+### Stop Trial Performance
+
+```{r}
+# Create a list to store mean and median SSD values
+w4_PxSSD <- list()
+w4_PxSSD[["Mean"]] <- lapply(unique(adhd_w4_dat$s),
+                          function(x)
+                            mean(adhd_w4_dat$SSD[adhd_w4_dat$SS == 'stop' &
+                                                  adhd_w4_dat$s == x], na.rm = T))
+w4_PxSSD[["Median"]] <- lapply(unique(adhd_w4_dat$s),
+                          function(x)
+                            median(adhd_w4_dat$SSD[adhd_w4_dat$SS == 'stop' &
+                                                  adhd_w4_dat$s == x], na.rm = T))
+# Create dataframe of SSD to look at average SSD per participants and skew (i.e., difference between mean and median)
+w4_SSD_Data <- as.data.frame(lapply(w4_PxSSD, unlist))
+w4_SSD_Data$Subj <- unique(adhd_w4_dat$s)
+w4_SSD_Data$Diff <- w4_SSD_Data[1] - w4_SSD_Data[2]
+
+w4_SSD_Data # Can already see that SSD over .95s is rare.
+```
+```{r}
+# Display group means and +/- 3SD
+mean(w4_SSD_Data$Mean)
+sd(w4_SSD_Data$Mean)
+mean(w4_SSD_Data$Mean) + (3*sd(w4_SSD_Data$Mean))
+mean(w4_SSD_Data$Mean) - (3*sd(w4_SSD_Data$Mean))
+
+# # Histogram of an outlying participant
+
+```
+```{r}
+## Now printout hist and IF for each participant
+# Small function to plot histogram and IF to jpeg for each participant
+dir.create("w4_adhd_Output")
+SST_StopPerf <- function(data, subject) {
+  jpeg(
+    paste(getwd(),"/w4_adhd_Output/", subject, "_w4_StopPerformance.jpg", sep = ""),
+    width = 800,
+    height = 800
+  )
+  layout(matrix(1:2, 2))
+  
+  hist(data$SSD,main = paste("Stop Performance of Subject: ",subject,sep = ""),
+       xlab = "SSD (s)")
+  plot_SS_if.dmc(data)
+  
+  dev.off()
+}
+
+# Run function across participants
+for (i in unique(adhd_w4_dat$s)){
+  
+  SST_StopPerf(adhd_w4_dat[adhd_w4_dat$s==i,],i)
+
+  
+}
+
+```
+
+```{r}
+# Show the number of trials for each SSD:
+# adhd_Ns = tapply(adhd_w4_dat$RT,adhd_w4_dat$SSD,length)
+# adhd_Ns
+```
+
+```{r}
+# Show response rate:
+
+# Loop through participants and calculate Stop RR
+w4_StopRR <- list()
+for (i in unique(adhd_w4_dat$s)) {
+  w4_data <- adhd_w4_dat[adhd_w4_dat$s == i, ]
+  w4_StopRR[[i]] <- tapply(!is.na(w4_data$RT), w4_data[, c("SS")], mean)[2]
+  
+}
+
+w4_StopRR[sapply(w4_StopRR,is.null)] <- NULL
+names(w4_StopRR) <- unique(adhd_w4_dat$s)
+```
+```{r}
+# Plot RR as a histogram
+hist(data.frame(unlist(w4_StopRR))$unlist.w4_StopRR,
+     main = "Histogram of mean Stop RR across sample",
+     xlab = "Stop Response Rate")
+```
+```{r}
+# Who are the people above .75?
+w4_HighStopRR <- names(w4_StopRR)[w4_StopRR>.75]
+```
+```{r}
+# Pre allocate
+w4_PerformanceChecks$w4_HighStopRR <- 0
+w4_PerformanceChecks$w4_HighStopRR[w4_PerformanceChecks$Subj %in% w4_HighStopRR] <- 1 # Mark subjects.
+
+```
+
+
+\newpage
+
+
+# Wave 5
+
+## STEP 2: DATA LOADING AND FORMAT ----------------------------------------
+
+```{r}
+# EXG DATASETS
+
+# Load adhd EXG datafiles for a single wave
+load("wave5/exgdat/w5_adhd_exgdat.RData")
+
+# Dataframe structural checks:
+# display the internal structure the dataframe
+str(adhd_w5_dat)     
+# if NR is not designated as the first-level factor in the "R" column
+# uncomment the next few lines to reorder the factor:
+# adhd_w#_dat$R <- relevel(sizes, "NR")
+# check to see if the reordering is successful
+# str(adhd_w#_dat)
+```
+
+```{r}
+# Create a dataframe that contains a single variable, each unique subjects name
+# This is a pre-allocation for our performance check data.
+w5_PerformanceChecks <- data.frame(Subj = unique(adhd_w5_dat$s))
+```
+
+
+## STEP 3: INDIVIDUAL QC OF SST PERFORMANCE ----------------------------------------
+
+### Trial Numbers
+```{r}
+# Check how many observations per ID: each subject should have 192 (complete SST)
+table(adhd_w5_dat$s)
+```
+```{r}
+# Print out subjects that do not have 192 obs - may be salvigable if there is only a few trials missing.
+w5_Lowtrials = table(adhd_w5_dat$s)[table(adhd_w5_dat$s)!=192] # Collect all subjects that do not have 192 trials
+
+# Apply the nrow function across each of the above subjects to see how many trials they actuall have.
+sapply(names(w5_Lowtrials), function(x) nrow(adhd_w5_dat[adhd_w5_dat$s == x,]))
+
+# 4062(64 trials)
+```
+
+
+```{r}
+## Don't remove yet, just mark them
+w5_PerformanceChecks$w5_Lowtrials <- 0 # Pre-allocate the variable
+# Assign participants with low no of  trials a 1 (or TRUE)
+# Assign participants with low no of  trials a 1 (or TRUE)
+w5_PerformanceChecks$w5_Lowtrials[w5_PerformanceChecks$Subj %in% names(w5_Lowtrials)] <- 1
+
+```
+
+### Go RT Checks
+```{r}
+# Plot go RT distribution;
+# P(NA) = Probability of go omission;
+# Accuracy is computed as correct go/(all go - go omissions):
+w5_adhd_correct <- as.numeric(adhd_w5_dat$S)==(as.numeric(adhd_w5_dat$R)-1)
+layout(1)
+plot.cell.density(adhd_w5_dat[adhd_w5_dat$SS=="go",],
+                  C=w5_adhd_correct[adhd_w5_dat$SS=="go"],
+                  xlim=c(0,5),ymax=5,main="Go RTs")
+
+```
+
+```{r}
+## Plot histogram of data focusing on short RT
+hist(adhd_w5_dat$RT[adhd_w5_dat$SS=="go" & adhd_w5_dat$RT<.300],
+     main = "Fast RT Histogram", xlab = "RT (s)")
+```
+```{r}
+# How are these fast RT's spread across participants?
+table(adhd_w5_dat$s[adhd_w5_dat$SS=="go" & adhd_w5_dat$RT<.300])
+
+# Fairly evenly spread
+```
+```{r}
+# Let's code this properly - cut off at 10% of total trials for instance. (i.e., 19.2)
+w5_Fastgos = table(adhd_w5_dat$s[adhd_w5_dat$SS=="go" & adhd_w5_dat$RT<.150])[table(adhd_w5_dat$s[adhd_w5_dat$SS=="go" & adhd_w5_dat$RT<.150])>19.2] # Again, mark the participant names that adhdcern us.
+# Print out names and numbers
+w5_Fastgos
+# no fastgos
+```
+```{r}
+w5_PerformanceChecks$w5_Fastgos <- 0 # Pre allocate variable
+w5_PerformanceChecks$w5_Fastgos[w5_PerformanceChecks$Subj %in% names(w5_Fastgos)] <- 1 # Mark poorly performing participants
+
+```
+
+
+```{r}
+# Overall accuracy (i.e., all trials-(errors + omission)
+tapply(as.numeric(adhd_w5_dat$S) == (as.numeric(adhd_w5_dat$R) - 1),
+       adhd_w5_dat$SS,
+       mean,
+       na.rm = TRUE)["go"]
+```
+```{r}
+# Collect the subjects that have no rates of errors or omissions as per your adhd_IM dataframe.
+# read in csv file of the IM data
+w5_adhd_IM = read.csv("wave5/ssrtIM/w5_adhd_Results_uncleaned.csv")
+w5_NoError <- w5_adhd_IM$subject[(w5_adhd_IM$w5_goERR*100)==0]
+w5_NoOmm   <- w5_adhd_IM$subject[(w5_adhd_IM$w5_goPmiss*100)==0]
+```
+```{r}
+# Collect the subjects that have High rates of errors or omissions as per your adhd_IM dataframe.
+w5_HighError <- w5_adhd_IM$subject[(w5_adhd_IM$w5_goERR*100)>20]
+w5_HighOmm   <- w5_adhd_IM$subject[(w5_adhd_IM$w5_goPmiss*100)>20]
+```
+```{r}
+# Pre allocate
+w5_PerformanceChecks$w5_NoError   <- 0
+w5_PerformanceChecks$w5_NoOmm     <- 0
+w5_PerformanceChecks$w5_HighError <- 0
+w5_PerformanceChecks$w5_HighOmm   <- 0
+
+# Marked subjects
+w5_PerformanceChecks$w5_NoError[w5_PerformanceChecks$Subj %in% w5_NoError] <- 1
+w5_PerformanceChecks$w5_NoOmm[w5_PerformanceChecks$Subj %in% w5_NoOmm] <- 1
+w5_PerformanceChecks$w5_HighError[w5_PerformanceChecks$Subj %in% w5_HighError] <-
+  1
+w5_PerformanceChecks$w5_HighOmm[w5_PerformanceChecks$Subj %in% w5_HighOmm] <- 1
+
+```
+
+
+### Stop Trial Performance
+
+```{r}
+# Create a list to store mean and median SSD values
+w5_PxSSD <- list()
+w5_PxSSD[["Mean"]] <- lapply(unique(adhd_w5_dat$s),
+                          function(x)
+                            mean(adhd_w5_dat$SSD[adhd_w5_dat$SS == 'stop' &
+                                                  adhd_w5_dat$s == x], na.rm = T))
+w5_PxSSD[["Median"]] <- lapply(unique(adhd_w5_dat$s),
+                          function(x)
+                            median(adhd_w5_dat$SSD[adhd_w5_dat$SS == 'stop' &
+                                                  adhd_w5_dat$s == x], na.rm = T))
+# Create dataframe of SSD to look at average SSD per participants and skew (i.e., difference between mean and median)
+w5_SSD_Data <- as.data.frame(lapply(w5_PxSSD, unlist))
+w5_SSD_Data$Subj <- unique(adhd_w5_dat$s)
+w5_SSD_Data$Diff <- w5_SSD_Data[1] - w5_SSD_Data[2]
+
+w5_SSD_Data # Can already see that SSD over .95s is rare.
+```
+```{r}
+# Display group means and +/- 3SD
+mean(w5_SSD_Data$Mean)
+sd(w5_SSD_Data$Mean)
+mean(w5_SSD_Data$Mean) + (3*sd(w5_SSD_Data$Mean))
+mean(w5_SSD_Data$Mean) - (3*sd(w5_SSD_Data$Mean))
+
+# # Histogram of an outlying participant
+
+```
+```{r}
+## Now printout hist and IF for each participant
+# Small function to plot histogram and IF to jpeg for each participant
+dir.create("w5_adhd_Output")
+SST_StopPerf <- function(data, subject) {
+  jpeg(
+    paste(getwd(),"/w5_adhd_Output/", subject, "_w5_StopPerformance.jpg", sep = ""),
+    width = 800,
+    height = 800
+  )
+  layout(matrix(1:2, 2))
+  
+  hist(data$SSD,main = paste("Stop Performance of Subject: ",subject,sep = ""),
+       xlab = "SSD (s)")
+  plot_SS_if.dmc(data)
+  
+  dev.off()
+}
+
+# Run function across participants
+for (i in unique(adhd_w5_dat$s)){
+  
+  SST_StopPerf(adhd_w5_dat[adhd_w5_dat$s==i,],i)
+
+  
+}
+
+```
+
+```{r}
+# Show the number of trials for each SSD:
+# adhd_Ns = tapply(adhd_w5_dat$RT,adhd_w5_dat$SSD,length)
+# adhd_Ns
+```
+
+```{r}
+# Show response rate:
+
+# Loop through participants and calculate Stop RR
+w5_StopRR <- list()
+for (i in unique(adhd_w5_dat$s)) {
+  w5_data <- adhd_w5_dat[adhd_w5_dat$s == i, ]
+  w5_StopRR[[i]] <- tapply(!is.na(w5_data$RT), w5_data[, c("SS")], mean)[2]
+  
+}
+
+w5_StopRR[sapply(w5_StopRR,is.null)] <- NULL
+names(w5_StopRR) <- unique(adhd_w5_dat$s)
+```
+```{r}
+# Plot RR as a histogram
+hist(data.frame(unlist(w5_StopRR))$unlist.w5_StopRR,
+     main = "Histogram of mean Stop RR across sample",
+     xlab = "Stop Response Rate")
+```
+```{r}
+# Who are the people above .75?
+w5_HighStopRR <- names(w5_StopRR)[w5_StopRR>.75]
+```
+```{r}
+# Pre allocate
+w5_PerformanceChecks$w5_HighStopRR <- 0
+w5_PerformanceChecks$w5_HighStopRR[w5_PerformanceChecks$Subj %in% w5_HighStopRR] <- 1 # Mark subjects.
+
+```
+
+# EXTRA: Go RT slowing
+
+```{r}
+loadRData <- function(fileName){
+#loads an RData file, and returns it
+    load(fileName)
+    get(ls()[ls() != "fileName"])
+}
+```
+
+```{r}
+# Slowing of GO RTS
+
+# Load the raw data file
+w3_raw = loadRData("wave3/raw/w3_adhd_RawData_uncleaned.RData")
+
+# Specify a list
+w3_goRT_slow = list()
+
+# Run the regression predicting go RT from trial no. for each subject in a for loop
+for(px in unique(w3_raw$subject)){
+  w3_tmp_dat = w3_raw[w3_raw$subject==px, ]
+  w3_tmp_dat$seq_trial = 1:nrow(w3_tmp_dat)
+  w3_trials = w3_tmp_dat$seq_trial[(w3_tmp_dat$signal == "nosignal" &
+                               w3_tmp_dat$rt > 0)]
+  w3_goRT = w3_tmp_dat$rt[(w3_tmp_dat$signal == "nosignal" &
+                               w3_tmp_dat$rt > 0)]
+  w3_goRT = w3_goRT/1000
+  w3_std_trials = w3_trials / max(w3_tmp_dat$seq_trial)
+  w3_lms <- lm(w3_goRT ~ w3_std_trials)
+  w3_goRT_slow[px] <- w3_lms$coefficients[2]
+}
+
+w3_goRT_slow[sapply(w3_goRT_slow,is.null)] <- NULL
+names(w3_goRT_slow) <- unique(w3_raw$subject)
+
+# Create a dataframe from subject and slope values
+w3_go_slow = data.frame(subject=names(w3_goRT_slow), slopes=unlist(w3_goRT_slow))
+
+# Collect the subjects that slow goRTs < -.300ms)
+w3_Slow <- w3_go_slow$subject[w3_go_slow$slopes < -.300]
+
+# Pre allocate
+w3_PerformanceChecks$w3_Slow <- 0
+# Marked subjects
+w3_PerformanceChecks$w3_Slow[w3_PerformanceChecks$Subj %in% w3_Slow] <- 1
+```
+
+
+```{r}
+# Slowing of GO RTS
+
+# Load the raw data file
+w4_raw = loadRData("wave4/raw/w4_adhd_RawData_uncleaned.RData")
+
+# Specify a list
+w4_goRT_slow = list()
+
+# Run the regression predicting go RT from trial no. for each subject in a for loop
+for(px in unique(w4_raw$subject)){
+  w4_tmp_dat = w4_raw[w4_raw$subject==px, ]
+  w4_tmp_dat$seq_trial = 1:nrow(w4_tmp_dat)
+  w4_trials = w4_tmp_dat$seq_trial[(w4_tmp_dat$signal == "nosignal" &
+                                      w4_tmp_dat$rt > 0)]
+  w4_goRT = w4_tmp_dat$rt[(w4_tmp_dat$signal == "nosignal" &
+                             w4_tmp_dat$rt > 0)]
+  w4_goRT = w4_goRT/1000
+  w4_std_trials = w4_trials / max(w4_tmp_dat$seq_trial)
+  w4_lms <- lm(w4_goRT ~ w4_std_trials)
+  w4_goRT_slow[px] <- w4_lms$coefficients[2]
+}
+
+w4_goRT_slow[sapply(w4_goRT_slow,is.null)] <- NULL
+names(w4_goRT_slow) <- unique(w4_raw$subject)
+
+# Create a dataframe from subject and slope values
+w4_go_slow = data.frame(subject=names(w4_goRT_slow), slopes=unlist(w4_goRT_slow))
+
+# Collect the subjects that slow goRTs < -.300ms)
+w4_Slow <- w4_go_slow$subject[w4_go_slow$slopes < -.300]
+
+# Pre allocate
+w4_PerformanceChecks$w4_Slow <- 0
+# Marked subjects
+w4_PerformanceChecks$w4_Slow[w4_PerformanceChecks$Subj %in% w4_Slow] <- 1
+```
+
+
+```{r}
+# Slowing of GO RTS
+
+# Load the raw data file
+w5_raw = loadRData("wave5/raw/w5_adhd_RawData_uncleaned.RData")
+
+# Specify a list
+w5_goRT_slow = list()
+
+# Run the regression predicting go RT from trial no. for each subject in a for loop
+for(px in unique(w5_raw$subject)){
+  w5_tmp_dat = w5_raw[w5_raw$subject==px, ]
+  w5_tmp_dat$seq_trial = 1:nrow(w5_tmp_dat)
+  w5_trials = w5_tmp_dat$seq_trial[(w5_tmp_dat$signal == "nosignal" &
+                                      w5_tmp_dat$rt > 0)]
+  w5_goRT = w5_tmp_dat$rt[(w5_tmp_dat$signal == "nosignal" &
+                             w5_tmp_dat$rt > 0)]
+  w5_goRT = w5_goRT/1000
+  w5_std_trials = w5_trials / max(w4_tmp_dat$seq_trial)
+  w5_lms <- lm(w5_goRT ~ w5_std_trials)
+  w5_goRT_slow[px] <- w5_lms$coefficients[2]
+}
+
+w5_goRT_slow[sapply(w5_goRT_slow,is.null)] <- NULL
+names(w5_goRT_slow) <- unique(w5_raw$subject)
+
+# Create a dataframe from subject and slope values
+w5_go_slow = data.frame(subject=names(w5_goRT_slow), slopes=unlist(w5_goRT_slow))
+
+# Collect the subjects that slow goRTs < -.300ms)
+w5_Slow <- w5_go_slow$subject[w5_go_slow$slopes < -.300]
+
+# Pre allocate
+w5_PerformanceChecks$w5_Slow <- 0
+# Marked subjects
+w5_PerformanceChecks$w5_Slow[w5_PerformanceChecks$Subj %in% w5_Slow] <- 1
+```
+
+
+#Performance check files
+```{r}
+## Output the performance checks for each wave
+
+# Wave 3
+w3_PerformanceChecks$w3_HowBad <- apply(w3_PerformanceChecks[-1],1, sum) # Sum of rows.
+write.csv(w3_PerformanceChecks,
+          file = "w3_adhd_PerformanceChecksOutput_MSv1.csv")
+
+# Wave 4
+w4_PerformanceChecks$w4_HowBad <- apply(w4_PerformanceChecks[-1],1, sum) # Sum of rows.
+write.csv(w4_PerformanceChecks,
+          file = "w4_adhd_PerformanceChecksOutput_MSv1.csv")
+
+# Wave 5
+w5_PerformanceChecks$w5_HowBad <- apply(w5_PerformanceChecks[-1],1, sum) # Sum of rows.
+write.csv(w5_PerformanceChecks,
+          file = "w5_adhd_PerformanceChecksOutput_MSv1.csv")
+
+
+#Combine all Performance Check output files
+
+perf_tmp <- merge(w3_PerformanceChecks, 
+                             w4_PerformanceChecks, all=TRUE)
+total_performanceChecks <- merge(perf_tmp, 
+                                 w5_PerformanceChecks, all=TRUE)
+write.csv(total_performanceChecks,
+          file = "ADHD_Total_PerformanceChecksOutput_MSv1.csv")
+
+```
+
+
+# save total Datafile
+```{r}
+save.image("exgQC_adhd.RData")
+```
