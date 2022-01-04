@@ -1,0 +1,459 @@
+###LOAD PACKAGES AND SET DIRECTORIES
+```{r, include=FALSE}
+packages <- c("MASS","tidyr","zoo","tibble","stringr","ggplot2","parallel","data.table","scales","VIM","mice","corrplot","psych","dplyr","R.matlab","readxl","lme4","mgcv","itsadug","emmeans")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+lapply(packages, library, character.only = TRUE)
+
+getmode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+scaleFUN <- function(x) sprintf("%.0f", x)
+options(scipen=8)
+
+select <- dplyr::select
+filter <- dplyr::filter
+```
+
+###LOAD DATA
+```{r}
+demo <- read.csv('FBA_control_final.csv') %>%
+  mutate(SID = as.factor(SID)) %>% 
+  mutate(Wave = as.factor(Wave)) %>%
+  mutate(sex = as.factor(sex)) %>%
+  mutate(age_c = age-mean(age)) %>% 
+  mutate(scanner = as.factor(scanner)) %>% 
+  mutate(meanFWD_c = meanFWD-mean(meanFWD)) %>% 
+  mutate(eTIV.long_c = etiv.long-mean(etiv.long)) 
+
+ # ordered factoring of scanner type
+demo$OFscanner <- as.factor(demo$scanner)
+# change factor to ordered factor:
+demo$OFscanner <- as.ordered(demo$OFscanner)
+# change contrast to treatment coding (difference curves)
+contrasts(demo$OFscanner) <- 'contr.treatment'
+# Inspect contrasts:
+contrasts(demo$OFscanner)
+
+# remove all variables leaving only the significant behav and FBA metrics
+demo1 <- demo[c(1:2,4,7:8,11,21:22,24,36,38,45,47,54:56)]
+```
+
+###LMM MODELS - CONNERS CHANGE
+```{r}
+
+# model change in conners (with lme)
+# extract slopes for FBA metrics - these will be the predictors in our models (adjusting for age, meanFWD, eTIv.long)
+
+ctrl <- lmeControl(opt='optim')
+
+#1
+slopemod1 = lme(LOGFC_LH_IFG_PRESMA~age_c+meanFWD_c+eTIV.long_c,random=~1+age_c|SID,control=ctrl,data=demo1,method="ML")
+
+#extract and save random intercepts and slopes (estimate change based on predicted scores)
+randeffs <- as.data.frame(ranef(slopemod1)) %>% rownames_to_column() %>% dplyr::rename(SID = rowname, LOGFC_LH_IFG_PRESMA_intercept = `(Intercept)`, LOGFC_LH_IFG_PRESMA_slope = age_c)
+demo1 <- demo1 %>% left_join(., randeffs) %>% mutate(LOGFC_LH_IFG_PRESMA_slope_bin = as.factor(ifelse(LOGFC_LH_IFG_PRESMA_slope < 0,0,1)))
+
+####
+
+#2
+slopemod2 = lme(LOGFC_LH_PRESMA_STN~age_c+meanFWD_c+eTIV.long_c,random=~1+age_c|SID,control=ctrl,data=demo1,method="ML")
+
+#extract and save random intercepts and slopes (estimate change based on predicted scores)
+randeffs2 <- as.data.frame(ranef(slopemod2)) %>% rownames_to_column() %>% dplyr::rename(SID = rowname, LOGFC_LH_PRESMA_STN_intercept = `(Intercept)`, LOGFC_LH_PRESMA_STN_slope = age_c)
+demo1 <- demo1 %>% left_join(., randeffs2) %>% mutate(LOGFC_LH_PRESMA_STN_slope_bin = as.factor(ifelse(LOGFC_LH_PRESMA_STN_slope < 0,0,1)))
+
+####
+
+#3
+slopemod3 = lme(LOGFC_RH_PRESMA_STN~age_c+meanFWD_c+eTIV.long_c,random=~1+age_c|SID,control=ctrl,data=demo1,method="ML")
+
+#extract and save random intercepts and slopes (estimate change based on predicted scores)
+randeffs3 <- as.data.frame(ranef(slopemod3)) %>% rownames_to_column() %>% dplyr::rename(SID = rowname, LOGFC_RH_PRESMA_STN_intercept = `(Intercept)`, LOGFC_RH_PRESMA_STN_slope = age_c)
+demo1 <- demo1 %>% left_join(., randeffs3) %>% mutate(LOGFC_RH_PRESMA_STN_slope_bin = as.factor(ifelse(LOGFC_RH_PRESMA_STN_slope < 0,0,1)))
+
+###
+
+slopemod4 = lme(LOGFC_RH_IFG_PRESMA~age_c+meanFWD_c+eTIV.long_c,random=~1+age_c|SID,control=ctrl,data=demo1,method="ML")
+
+#extract and save random intercepts and slopes (estimate change based on predicted scores)
+randeffs4 <- as.data.frame(ranef(slopemod4)) %>% rownames_to_column() %>% dplyr::rename(SID = rowname, LOGFC_RH_IFG_PRESMA_intercept = `(Intercept)`, LOGFC_RH_IFG_PRESMA_slope = age_c)
+demo1 <- demo1 %>% left_join(., randeffs4) %>% mutate(LOGFC_RH_IFG_PRESMA_slope_bin = as.factor(ifelse(LOGFC_RH_IFG_PRESMA_slope < 0,0,1)))
+
+```
+
+# Prep data for looping
+```{r}
+demo2 = demo1[c(1:9,14:16,18,21,24,27)]
+dvs = colnames(demo2[c(7:9)])
+demo2_xlong <- demo2 %>% gather(dvs,value,-SID,-Wave,-OFscanner,-eTIV.long_c,-meanFWD_c,-sex,-age,-age_c,-SES_c,-LOGFC_LH_IFG_PRESMA_slope,
+                                -LOGFC_LH_PRESMA_STN_slope,-LOGFC_RH_PRESMA_STN_slope, -LOGFC_RH_IFG_PRESMA_slope)
+```
+
+# LH LOGFC IFG-PRESMA
+
+```{r}
+dir.create("./Controls_change")
+dir.create("./Controls_change/LOGFC_LH_IFG_PRESMA")
+
+# GAM models looking at change in whether change in FBA metrics predict change in SST performance
+
+#loop through covariates
+
+modelsA<-lapply(X=as.character(as.list(dvs)),
+               df=demo2_xlong,
+               FUN=function(dv_name, df) {
+                 print(dv_name)
+                 
+                 # now create a new dataframe within the loop that is filtered to dv_name
+                 adf<-df %>% filter(dvs==dv_name) %>%
+                   mutate(SID = as.factor(SID), Wave = as.factor(Wave), age_c = as.numeric(age_c),
+                          sex = as.factor(sex), SES_c = as.numeric(SES_c), value = as.numeric(value),
+                          LOGFC_LH_IFG_PRESMA_slope = as.numeric(LOGFC_LH_IFG_PRESMA_slope),
+                          meanFWD_c = as.numeric(meanFWD_c), eTIV.long_c = as.numeric(eTIV.long_c), OFscanner = as.factor(OFscanner)) 
+  
+                 # ordered factoring of sex
+                 adf$OFsex <- as.factor(adf$sex)
+                 # change factor to ordered factor:
+                 adf$OFsex <- as.ordered(adf$OFsex)
+                 # change contrast to treatment coding (difference curves)
+                 contrasts(adf$OFsex) <- 'contr.treatment'
+                 # Inspect contrasts:
+                 contrasts(adf$OFsex)
+                 
+                 
+                 # Run the following gam models for each DV
+              
+                 # Initial best-fitting model
+                 agemod <- gam(value  ~ s(age_c,bs="cr",k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                 # Main effect of slope model
+                 mainslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_LH_IFG_PRESMA_slope + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                 #Model with intraction of slope and age 
+                 interslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_LH_IFG_PRESMA_slope + ti(age_c, LOGFC_LH_IFG_PRESMA_slope, bs="cr", k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+
+                 save(agemod,mainslope,interslope, file = paste0("./Controls_change/LOGFC_LH_IFG_PRESMA/", dv_name,"_gams_models.Rdata"))
+                 
+                 # Model comparisons
+                 
+                 # 1 vs 2
+                 # age model vs. main model
+                 comp1 <- compareML(agemod,mainslope)
+                 table1 <- comp1$table
+                 pvalue1 <- as.numeric(comp1$table[2,6])
+                 table1$AIC <- comp1$AIC
+                 table1$advice <- comp1$advice
+                 
+                 # 2 vs 3
+                 # main model vs. interaction model
+                 comp2 <- compareML(mainslope,interslope)
+                 table2 <- comp2$table
+                 pvalue2 <- as.numeric(comp2$table[2,6])
+                 table2$AIC <- comp2$AIC
+                 table2$advice <- comp2$advice
+
+                 #Saving output
+                 
+                 # save age model
+                 ptable <- as.data.frame(summary(agemod)$p.table) %>% rownames_to_column()
+                 stable <- as.data.frame(summary(agemod)$s.table) %>% rownames_to_column()
+                 
+                 # save main model
+                 ptable2 <- as.data.frame(summary(mainslope)$p.table) %>% rownames_to_column()
+                 stable2 <- as.data.frame(summary(mainslope)$s.table) %>% rownames_to_column()
+                 
+                 # save main interaction model
+                 ptable3 <- as.data.frame(summary(interslope)$p.table) %>% rownames_to_column()
+                 stable3 <- as.data.frame(summary(interslope)$s.table) %>% rownames_to_column()
+                 
+                 
+                 #combine all tables
+                 table <- plyr::rbind.fill(table1,table2,ptable,stable,ptable2,stable2,ptable3,stable3)
+                 table$dv <- dv_name
+                 table
+               })
+
+models_LOGFC_LH_IFG_PRESMA <- rbindlist(modelsA,fill=TRUE)
+View(models_LOGFC_LH_IFG_PRESMA)
+write.csv(models_LOGFC_LH_IFG_PRESMA,file= "./Controls_change/LOGFC_LH_IFG_PRESMA/models_LOGFC_LH_IFG_PRESMA.csv",row.names=F)
+```
+
+
+
+
+# LOGFC_LH_PRESMA_STN
+
+```{r}
+dir.create("./Controls_change")
+dir.create("./Controls_change/LOGFC_LH_PRESMA_STN")
+
+
+# GAM models looking at change in whether change in FBA metrics predict change in SST performance
+
+#loop through covariates
+
+modelsB<-lapply(X=as.character(as.list(dvs)),
+               df=demo2_xlong,
+               FUN=function(dv_name, df) {
+                 print(dv_name)
+                 
+                 # now create a new dataframe within the loop that is filtered to dv_name
+                 adf<-df %>% filter(dvs==dv_name) %>%
+                   mutate(SID = as.factor(SID), Wave = as.factor(Wave), age_c = as.numeric(age_c),
+                          sex = as.factor(sex), SES_c = as.numeric(SES_c), value = as.numeric(value),
+                          LOGFC_LH_IFG_PRESMA_slope = as.numeric(LOGFC_LH_IFG_PRESMA_slope),
+                          meanFWD_c = as.numeric(meanFWD_c), eTIV.long_c = as.numeric(eTIV.long_c), OFscanner = as.factor(OFscanner)) 
+  
+                 # ordered factoring of sex
+                 adf$OFsex <- as.factor(adf$sex)
+                 # change factor to ordered factor:
+                 adf$OFsex <- as.ordered(adf$OFsex)
+                 # change contrast to treatment coding (difference curves)
+                 contrasts(adf$OFsex) <- 'contr.treatment'
+                 # Inspect contrasts:
+                 contrasts(adf$OFsex)
+             
+                     
+                 # Run the following gam models for each DV
+              
+                 # Initial best-fitting model
+                 agemod <- gam(value  ~ s(age_c,bs="cr",k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                 # Main effect of slope model
+                 mainslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_LH_PRESMA_STN_slope + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                 #Model with intraction of slope and age 
+                 interslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_LH_PRESMA_STN_slope + ti(age_c, LOGFC_LH_PRESMA_STN_slope, bs="cr", k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+
+                 save(agemod,mainslope,interslope, file = paste0("./Controls_change/LOGFC_LH_PRESMA_STN/", dv_name,"_gams_models.Rdata"))
+                 
+                 # Model comparisons
+                 
+                 # 1 vs 2
+                 # age model vs. main model
+                 comp1 <- compareML(agemod,mainslope)
+                 table1 <- comp1$table
+                 pvalue1 <- as.numeric(comp1$table[2,6])
+                 table1$AIC <- comp1$AIC
+                 table1$advice <- comp1$advice
+                 
+                 # 2 vs 3
+                 # main model vs. interaction model
+                 comp2 <- compareML(mainslope,interslope)
+                 table2 <- comp2$table
+                 pvalue2 <- as.numeric(comp2$table[2,6])
+                 table2$AIC <- comp2$AIC
+                 table2$advice <- comp2$advice
+
+                 #Saving output
+                 
+                 # save age model
+                 ptable <- as.data.frame(summary(agemod)$p.table) %>% rownames_to_column()
+                 stable <- as.data.frame(summary(agemod)$s.table) %>% rownames_to_column()
+                 
+                 # save main model
+                 ptable2 <- as.data.frame(summary(mainslope)$p.table) %>% rownames_to_column()
+                 stable2 <- as.data.frame(summary(mainslope)$s.table) %>% rownames_to_column()
+                 
+                 # save main interaction model
+                 ptable3 <- as.data.frame(summary(interslope)$p.table) %>% rownames_to_column()
+                 stable3 <- as.data.frame(summary(interslope)$s.table) %>% rownames_to_column()
+                 
+                 
+                 #combine all tables
+                 table <- plyr::rbind.fill(table1,table2,ptable,stable,ptable2,stable2,ptable3,stable3)
+                 table$dv <- dv_name
+                 table
+               })
+
+models_LOGFC_LH_PRESMA_STN <- rbindlist(modelsB,fill=TRUE)
+View(models_LOGFC_LH_PRESMA_STN)
+write.csv(models_LOGFC_LH_PRESMA_STN,file= "./Controls_change/LOGFC_LH_PRESMA_STN/models_LOGFC_LH_PRESMA_STN.csv",row.names=F)
+```
+
+
+
+# LOGFC_RH_PRESMA_STN
+
+```{r}
+dir.create("./Controls_change")
+dir.create("./Controls_change/LOGFC_RH_PRESMA_STN")
+
+
+# GAM models looking at change in whether change in FBA metrics predict change in SST performance
+
+#loop through covariates
+
+modelsC<-lapply(X=as.character(as.list(dvs)),
+                df=demo2_xlong,
+                FUN=function(dv_name, df) {
+                  print(dv_name)
+                  
+                  # now create a new dataframe within the loop that is filtered to dv_name
+                 adf<-df %>% filter(dvs==dv_name) %>%
+                   mutate(SID = as.factor(SID), Wave = as.factor(Wave), age_c = as.numeric(age_c),
+                          sex = as.factor(sex), SES_c = as.numeric(SES_c), value = as.numeric(value),
+                          LOGFC_LH_IFG_PRESMA_slope = as.numeric(LOGFC_LH_IFG_PRESMA_slope),
+                          meanFWD_c = as.numeric(meanFWD_c), eTIV.long_c = as.numeric(eTIV.long_c), OFscanner = as.factor(OFscanner)) 
+  
+                  # ordered factoring of sex
+                  adf$OFsex <- as.factor(adf$sex)
+                  # change factor to ordered factor:
+                  adf$OFsex <- as.ordered(adf$OFsex)
+                  # change contrast to treatment coding (difference curves)
+                  contrasts(adf$OFsex) <- 'contr.treatment'
+                  # Inspect contrasts:
+                  contrasts(adf$OFsex)
+             
+                      
+                  # Run the following gam models for each DV
+                  
+                  # Initial best-fitting model
+                  agemod <- gam(value  ~ s(age_c,bs="cr",k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                  # Main effect of slope model
+                  mainslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_RH_PRESMA_STN_slope + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                  #Model with intraction of slope and age 
+                  interslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_RH_PRESMA_STN_slope + ti(age_c, LOGFC_RH_PRESMA_STN_slope, bs="cr", k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                  
+                  save(agemod,mainslope,interslope, file = paste0("./Controls_change/LOGFC_RH_PRESMA_STN/", dv_name,"_gams_models.Rdata"))
+                  
+                  # Model comparisons
+                  
+                  # 1 vs 2
+                  # age model vs. main model
+                  comp1 <- compareML(agemod,mainslope)
+                  table1 <- comp1$table
+                  pvalue1 <- as.numeric(comp1$table[2,6])
+                  table1$AIC <- comp1$AIC
+                  table1$advice <- comp1$advice
+                  
+                  # 2 vs 3
+                  # main model vs. interaction model
+                  comp2 <- compareML(mainslope,interslope)
+                  table2 <- comp2$table
+                  pvalue2 <- as.numeric(comp2$table[2,6])
+                  table2$AIC <- comp2$AIC
+                  table2$advice <- comp2$advice
+                  
+                  #Saving output
+                  
+                  # save age model
+                  ptable <- as.data.frame(summary(agemod)$p.table) %>% rownames_to_column()
+                  stable <- as.data.frame(summary(agemod)$s.table) %>% rownames_to_column()
+                  
+                  # save main model
+                  ptable2 <- as.data.frame(summary(mainslope)$p.table) %>% rownames_to_column()
+                  stable2 <- as.data.frame(summary(mainslope)$s.table) %>% rownames_to_column()
+                  
+                  # save main interaction model
+                  ptable3 <- as.data.frame(summary(interslope)$p.table) %>% rownames_to_column()
+                  stable3 <- as.data.frame(summary(interslope)$s.table) %>% rownames_to_column()
+                  
+                  #combine all tables
+                  table <- plyr::rbind.fill(table1,table2,ptable,stable,ptable2,stable2,ptable3,stable3)
+                  table$dv <- dv_name
+                  table
+                })
+
+models_LOGFC_RH_PRESMA_STN <- rbindlist(modelsC,fill=TRUE)
+View(models_LOGFC_RH_PRESMA_STN)
+write.csv(models_LOGFC_RH_PRESMA_STN,file= "./Controls_change/LOGFC_RH_PRESMA_STN/models_LOGFC_RH_PRESMA_STN.csv",row.names=F)
+```
+
+
+
+
+# RH LOGFC IFG-PRESMA
+
+```{r}
+dir.create("./Controls_change")
+dir.create("./Controls_change/LOGFC_RH_IFG_PRESMA")
+
+# GAM models looking at change in whether change in FBA metrics predict change in SST performance
+
+#loop through covariates
+
+modelsD<-lapply(X=as.character(as.list(dvs)),
+               df=demo2_xlong,
+               FUN=function(dv_name, df) {
+                 print(dv_name)
+                 
+                 # now create a new dataframe within the loop that is filtered to dv_name
+                 adf<-df %>% filter(dvs==dv_name) %>%
+                   mutate(SID = as.factor(SID), Wave = as.factor(Wave), age_c = as.numeric(age_c),
+                          sex = as.factor(sex), SES_c = as.numeric(SES_c), value = as.numeric(value),
+                          LOGFC_LH_IFG_PRESMA_slope = as.numeric(LOGFC_LH_IFG_PRESMA_slope),
+                          meanFWD_c = as.numeric(meanFWD_c), eTIV.long_c = as.numeric(eTIV.long_c), OFscanner = as.factor(OFscanner)) 
+  
+                 
+                 # ordered factoring of sex
+                 adf$OFsex <- as.factor(adf$sex)
+                 # change factor to ordered factor:
+                 adf$OFsex <- as.ordered(adf$OFsex)
+                 # change contrast to treatment coding (difference curves)
+                 contrasts(adf$OFsex) <- 'contr.treatment'
+                 # Inspect contrasts:
+                 contrasts(adf$OFsex)
+
+                 
+                 # Run the following gam models for each DV
+              
+                 # Initial best-fitting model
+                 agemod <- gam(value  ~ s(age_c,bs="cr",k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                 # Main effect of slope model
+                 mainslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_RH_IFG_PRESMA_slope + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+                 #Model with intraction of slope and age 
+                 interslope <- gam(value  ~ s(age_c,bs="cr",k=4) + LOGFC_RH_IFG_PRESMA_slope + ti(age_c, LOGFC_RH_IFG_PRESMA_slope, bs="cr", k=4) + SES_c + OFscanner + s(SID,bs='re'), data=adf, method = "ML")
+
+                 save(agemod,mainslope,interslope, file = paste0("./Controls_change/LOGFC_RH_IFG_PRESMA/", dv_name,"_gams_models.Rdata"))
+                 
+                 # Model comparisons
+                 
+                 # 1 vs 2
+                 # age model vs. main model
+                 comp1 <- compareML(agemod,mainslope)
+                 table1 <- comp1$table
+                 pvalue1 <- as.numeric(comp1$table[2,6])
+                 table1$AIC <- comp1$AIC
+                 table1$advice <- comp1$advice
+                 
+                 # 2 vs 3
+                 # main model vs. interaction model
+                 comp2 <- compareML(mainslope,interslope)
+                 table2 <- comp2$table
+                 pvalue2 <- as.numeric(comp2$table[2,6])
+                 table2$AIC <- comp2$AIC
+                 table2$advice <- comp2$advice
+
+                 #Saving output
+                 
+                 # save age model
+                 ptable <- as.data.frame(summary(agemod)$p.table) %>% rownames_to_column()
+                 stable <- as.data.frame(summary(agemod)$s.table) %>% rownames_to_column()
+                 
+                 # save main model
+                 ptable2 <- as.data.frame(summary(mainslope)$p.table) %>% rownames_to_column()
+                 stable2 <- as.data.frame(summary(mainslope)$s.table) %>% rownames_to_column()
+                 
+                 # save main interaction model
+                 ptable3 <- as.data.frame(summary(interslope)$p.table) %>% rownames_to_column()
+                 stable3 <- as.data.frame(summary(interslope)$s.table) %>% rownames_to_column()
+                 
+                 
+                 #combine all tables
+                 table <- plyr::rbind.fill(table1,table2,ptable,stable,ptable2,stable2,ptable3,stable3)
+                 table$dv <- dv_name
+                 table
+               })
+
+models_LOGFC_RH_IFG_PRESMA <- rbindlist(modelsD,fill=TRUE)
+View(models_LOGFC_RH_IFG_PRESMA)
+write.csv(models_LOGFC_RH_IFG_PRESMA,file= "./Controls_change/LOGFC_RH_IFG_PRESMA/models_LOGFC_RH_IFG_PRESMA.csv",row.names=F)
+```
+
+
+
+```{r}
+save.image("Controls_change/Combined_GAMs.RData")
+```
+
