@@ -1,0 +1,509 @@
+
+# PRE-PROCESSING & QUALITY-ASSESSMENT OF PRE-PROCESSED DWI DATA
+
+# - COMPLETED USNIG A BASH SCRIPT DEVELOPED BY DR. NANDI VIJAYAKUMAR & MS. PHOEBE THOMSON
+
+######################################################################################################################
+
+# SINGLE-SHELLED 3-TISSUE CONSTRAINED SHPERICAL DECONVOLUTION (SS3TCSD)
+
+# copy subject-specific response functions for each tissue type from 'dwi_preproc' to working directory
+
+bash batch_rf_con.sh 
+
+# group-averaged response functions for each tissue type 
+
+responsemean */response_wm_unbiased.txt ../control_group_average_response_wm.txt
+responsemean */response_gm_unbiased.txt ../control_group_average_response_gm.txt
+responsemean */response_csf_unbiased.txt ../control_group_average_response_csf.txt
+
+# copy mask_unbiased_combined_upsampled.mif files from 'dwi_preproc' to working directory
+
+bash batch_masks_copy.sh
+
+# conduct SS3TCSD + Global intensity normalizatio0n & bias-field correction
+
+bash batch_ss3tcsd_con.sh
+
+# check masks for any holes
+
+for i in *; do echo $i; mrview $i/dwi_denoised_unringed_preproc_unbiased_upsampled.mif -intensity_range -30,7000 -overlay.load $i/mask_unbiased_combined_upsampled.mif -overlay.opacity 0.3 -mode 2 -size 1000,1000; done
+
+# check FODs and decfods
+
+for i in *; do echo $i; mrview $i/decfod.mif -odf.load_sh $i/wmfod_norm.mif -mode 2; done
+
+
+######################################################################################################################
+
+# POPULATION TEMPLATE
+
+# Create the template directories:
+
+mkdir -p ../template/fod_input
+mkdir ../template/mask_input
+
+
+# Symbolic link all subject wmfod and masks into the template folders: 
+
+foreach * : ln -sr IN/wmfod_norm.mif ../template/fod_input/PRE.mif
+foreach * : ln -sr IN/mask_unbiased_combined_upsampled.mif ../template/mask_input/PRE.mif
+
+sbatch --partition=m3c --ntasks=8 --mem=64000 --time=160:00:00 --job-name=poptemplate --account=tg69 --output=/home/mervyns/tg69_scratch/Mervyn/longit-fba/template/poptemplate-%j.out --mail-user=mervyn@deakin.edu.au --wrap="population_template ../template/fod_input -mask_dir ../template/mask_input ../template/wmfod_template.mif -voxel_size 1.5"
+
+
+# Register FOD template to MNI (only necessary for tract seG. Otherwise, go down to Fixel mask (3-tissue CSD):
+
+mrconvert wmfod_template.mif wmfod_template_bad_strides.nii.gz -force
+mrconvert wmfod_template_bad_strides.nii.gz wmfod_template.nii.gz -strides -1,2,3,4 -force
+mrconvert wmfod_template.nii.gz l0image.nii.gz -coord 3 0 -force
+
+
+# For the next step, go and get the MNI_FA_template file from the TractSeg folder that comes up when you download TractSEG:
+
+flirt -ref MNI_FA_template.nii.gz -in l0image.nii.gz -out l0image_MNI.nii.gz -omat wmfod_template_2_MNI.mat -dof 12
+transformconvert wmfod_template_2_MNI.mat l0image.nii.gz MNI_FA_template.nii.gz flirt_import wmfod_template_2_MNI.txt
+mrtransform wmfod_template.nii.gz -linear wmfod_template_2_MNI.txt -template MNI_FA_template.nii.gz wmfod_template_MNI.nii.gz -reorient_fod no
+mrconvert wmfod_template_MNI.nii.gz wmfod_template_MNI.mif
+
+
+# Register all subject FOD images to the FOD template:
+
+This starts the process for normalising the individual upsampled normalised FOD maps into the population standard space (i.e population template) - Create a translation file so that you can get participant fods into template space: 
+
+for i in `ls -d *`; do sbatch --cpus-per-task=16 --mem-per-cpu=16000 --time=0-08:00:00 --job-name=reg --account=tg69 --output=/home/mervyns/tg69_scratch/Mervyn/longit-fba/subjects_controls/$i/reg-%j.out --mail-user=mervyn@deakin.edu.au --wrap="mrregister $i/wmfod_norm.mif -mask1 $i/mask_unbiased_combined_upsampled.mif ../template/wmfod_template_MNI.mif -nl_warp $i/subject2template_warp.mif $i/template2subject_warp.mif -force"; done
+
+
+# Compute the template mask (intersection of all subject masks in template space)
+
+Put all participant dwi masks into template space
+
+foreach * : mrtransform IN/mask_unbiased_combined_upsampled.mif -warp IN/subject2template_warp.mif -interp nearest -datatype bit IN/dwi_mask_in_template_space.mif -force
+
+
+# Get average template mask (this should also tell you how many images were included in generating the average)
+
+mrmath */dwi_mask_in_template_space.mif min ../template/template_mask.mif -datatype bit -force
+
+
+######################################################################################################################
+
+# FIXEL-BASED ANALYSIS STEPS
+
+# Compute a white matter template analysis fixel mask:
+
+fod2fixel -mask ../template/template_mask.mif -fmls_peak_value 0.06 ../template/wmfod_template_MNI.mif ../template/fixel_mask -force
+
+# view fixel mask:
+
+mrview ../template/fixel_mask/index.mif
+
+# Check number of fixels in the image:
+
+mrinfo -size ../template/fixel_mask/directions.mif (fixel count: 544,230)
+
+
+# Warp FOD images to template space:
+
+foreach * : mrtransform IN/wmfod_norm.mif -warp IN/subject2template_warp.mif -reorient_fod no IN/fod_in_template_space_NOT_REORIENTED.mif -force
+
+
+# Segment FOD images to estimate fixels and their apparent fibre density (FD):
+
+for i in `ls -d *`; do sbatch --cpus-per-task=16 --mem-per-cpu=16000 --time=0-08:00:00 --job-name=fod2fixel --account=tg69 --output=/home/mervyns/tg69_scratch/Mervyn/longit-fba/subjects_controls/$i/fod2fixel-%j.out --mail-user=mervyn@deakin.edu.au --wrap="fod2fixel -mask ../template/template_mask.mif $i/fod_in_template_space_NOT_REORIENTED.mif $i/fixel_in_template_space_NOT_REORIENTED -afd fd.mif -force"; done
+
+
+# Reorient fixels:
+
+foreach * : fixelreorient IN/fixel_in_template_space_NOT_REORIENTED IN/subject2template_warp.mif IN/fixel_in_template_space -force
+
+
+# Assign subject fixels to template fixels:
+
+foreach * : fixelcorrespondence IN/fixel_in_template_space/fd.mif ../template/fixel_mask ../template/fd PRE.mif -force
+
+
+# Compute the fibre cross-section (FC) metric:
+
+foreach * : warp2metric IN/subject2template_warp.mif -fc ../template/fixel_mask ../template/fc IN.mif -force
+
+
+# Compute the log FC:
+
+mkdir ../template/log_fc
+cp ../template/fc/index.mif ../template/fc/directions.mif ../template/log_fc
+foreach * : mrcalc ../template/fc/IN.mif -log ../template/log_fc/IN.mif
+
+
+# Compute a combined measure of fibre density and cross-section (FDC):
+
+mkdir ../template/fdc
+cp ../template/fc/index.mif ../template/fdc
+cp ../template/fc/directions.mif ../template/fdc
+foreach * : mrcalc ../template/fd/IN.mif ../template/fc/IN.mif -mult ../template/fdc/IN.mif
+
+
+######################################################################################################################
+
+
+# PROBABILISTIC TRACTOGRAPHY & FBA TRACT MASK GENERATION - FRONTO-BASAL-GANGLIA CIRCUIT
+
+# LH
+
+tckgen -angle 22.5 -maxlen 250 -minlen 10 -power 1.0 wmfod_template_MNI.mif -seed_image ../atlases/ranta-atlas/lh.inferolateral_pfc_mask.mif -include ../atlases/ranta-atlas/lh.supplementary_motor_complex_mask.mif -exclude ../atlases/excluded/exclude01.mif -exclude ../atlases/excluded/exclude02.mif -mask template_mask.mif -cutoff 0.1 lh_IFG_PRESMA.tck -select 2000 -stop -force
+
+tckgen -angle 22.5 -maxlen 250 -minlen 10 -power 1.0 wmfod_template_MNI.mif -seed_image ../atlases/ranta-atlas/lh.inferolateral_pfc_mask.mif -include ../atlases/stn-atlas/thresholded/STN_left_thr_mask.mif -exclude ../atlases/excluded/exclude01.mif -mask template_mask.mif -cutoff 0.1 lh_IFG_STN.tck -select 2000 -stop -force
+
+tckgen -angle 22.5 -maxlen 250 -minlen 10 -power 1.0 wmfod_template_MNI.mif -seed_image ../atlases/ranta-atlas/lh.supplementary_motor_complex_mask.mif -include ../atlases/stn-atlas/thresholded/STN_left_thr_mask.mif -exclude ../atlases/excluded/exclude01.mif -mask template_mask.mif -cutoff 0.1 lh_PRESMA_STN.tck -select 2000 -stop -force
+
+
+# RH
+
+tckgen -angle 22.5 -maxlen 250 -minlen 10 -power 1.0 wmfod_template_MNI.mif -seed_image ../atlases/ranta-atlas/rh.inferolateral_pfc_mask.mif -include ../atlases/ranta-atlas/rh.supplementary_motor_complex_mask.mif -exclude ../atlases/excluded/exclude01.mif -mask template_mask.mif -cutoff 0.1 rh_IFG_PRESMA.tck -select 2000 -stop -force
+
+tckgen -angle 22.5 -maxlen 250 -minlen 10 -power 1.0 wmfod_template_MNI.mif -seed_image ../atlases/ranta-atlas/rh.inferolateral_pfc_mask.mif -include ../atlases/stn-atlas/thresholded/STN_right_thr_mask.mif -exclude ../atlases/excluded/exclude01.mif -mask template_mask.mif -cutoff 0.1 rh_IFG_STN.tck -select 2000 -stop -force
+
+tckgen -angle 22.5 -maxlen 250 -minlen 10 -power 1.0 wmfod_template_MNI.mif -seed_image ../atlases/ranta-atlas/rh.supplementary_motor_complex_mask.mif -include ../atlases/stn-atlas/thresholded/STN_right_thr_mask.mif -exclude ../atlases/excluded/exclude01.mif -mask template_mask.mif -cutoff 0.1 rh_PRESMA_STN.tck -select 2000 -stop -force
+
+
+# Combine tracts in each hemisphere
+
+# LH
+tckedit lh_IFG_PRESMA.tck lh_IFG_STN.tck lh_PRESMA_STN.tck lh_FBG.tck
+#RH
+tckedit rh_IFG_PRESMA.tck rh_IFG_STN.tck rh_PRESMA_STN.tck rh_FBG.tck
+
+
+# Convert all TCK files to NIFTI
+
+mkdir tract_nifti
+for i in *.tck; do tckmap $i tract_nifti/$i.nii.gz -template wmfod_template_MNI.mif; done
+
+
+*************************************************************************
+
+# Make the following directories in the template folder and create fixel masks
+
+*************************************************************************
+
+mkdir fixel_masks_fd
+
+cp lh_FBG.tck ./fixel_masks_fd/lh_FBG.tck
+cp rh_FBG.tck ./fixel_masks_fd/rh_FBG.tck
+cp lh_IFG_PRESMA.tck ./fixel_masks_fd/lh_IFG_PRESMA.tck
+cp rh_IFG_PRESMA.tck ./fixel_masks_fd/rh_IFG_PRESMA.tck
+cp lh_IFG_STN.tck ./fixel_masks_fd/lh_IFG_STN.tck
+cp rh_IFG_STN.tck ./fixel_masks_fd/rh_IFG_STN.tck
+cp lh_PRESMA_STN.tck ./fixel_masks_fd/lh_PRESMA_STN.tck
+cp rh_PRESMA_STN.tck ./fixel_masks_fd/rh_PRESMA_STN.tck
+
+
+cd fixel_masks_fd
+
+tck2fixel lh_FBG.tck ../fd TDI_lh_FBG lh_FBG_TDI.mif -force
+fixelcrop ../fd TDI_lh_FBG/lh_FBG_TDI.mif fd_lh_FBG -force
+tck2fixel rh_FBG.tck ../fd TDI_rh_FBG rh_FBG_TDI.mif -force
+fixelcrop ../fd TDI_rh_FBG/rh_FBG_TDI.mif fd_rh_FBG -force
+tck2fixel lh_IFG_PRESMA.tck ../fd TDI_lh_IFG_PRESMA lh_IFG_PRESMA_TDI.mif
+fixelcrop ../fd TDI_lh_IFG_PRESMA/lh_IFG_PRESMA_TDI.mif fd_lh_IFG_PRESMA
+tck2fixel rh_IFG_PRESMA.tck ../fd TDI_rh_IFG_PRESMA rh_IFG_PRESMA_TDI.mif
+fixelcrop ../fd TDI_rh_IFG_PRESMA/rh_IFG_PRESMA_TDI.mif fd_rh_IFG_PRESMA
+tck2fixel lh_IFG_STN.tck ../fd TDI_lh_IFG_STN lh_IFG_STN_TDI.mif
+fixelcrop ../fd TDI_lh_IFG_STN/lh_IFG_STN_TDI.mif fd_lh_IFG_STN
+tck2fixel rh_IFG_STN.tck ../fd TDI_rh_IFG_STN rh_IFG_STN_TDI.mif
+fixelcrop ../fd TDI_rh_IFG_STN/rh_IFG_STN_TDI.mif fd_rh_IFG_STN
+tck2fixel lh_PRESMA_STN.tck ../fd TDI_lh_PRESMA_STN lh_PRESMA_STN_TDI.mif
+fixelcrop ../fd TDI_lh_PRESMA_STN/lh_PRESMA_STN_TDI.mif fd_lh_PRESMA_STN
+tck2fixel rh_PRESMA_STN.tck ../fd TDI_rh_PRESMA_STN rh_PRESMA_STN_TDI.mif
+fixelcrop ../fd TDI_rh_PRESMA_STN/rh_PRESMA_STN_TDI.mif fd_rh_PRESMA_STN
+
+
+****************************************************************************
+
+mkdir fixel_masks_logfc
+
+cp lh_FBG.tck ./fixel_masks_logfc/lh_FBG.tck
+cp rh_FBG.tck ./fixel_masks_logfc/rh_FBG.tck
+cp lh_IFG_PRESMA.tck ./fixel_masks_logfc/lh_IFG_PRESMA.tck
+cp rh_IFG_PRESMA.tck ./fixel_masks_logfc/rh_IFG_PRESMA.tck
+cp lh_IFG_STN.tck ./fixel_masks_logfc/lh_IFG_STN.tck
+cp rh_IFG_STN.tck ./fixel_masks_logfc/rh_IFG_STN.tck
+cp lh_PRESMA_STN.tck ./fixel_masks_logfc/lh_PRESMA_STN.tck
+cp rh_PRESMA_STN.tck ./fixel_masks_logfc/rh_PRESMA_STN.tck
+
+
+cd fixel_masks_logfc
+
+tck2fixel lh_FBG.tck ../log_fc TDI_lh_FBG lh_FBG_TDI.mif -force
+fixelcrop ../log_fc TDI_lh_FBG/lh_FBG_TDI.mif logfc_lh_FBG -force
+tck2fixel rh_FBG.tck ../log_fc TDI_rh_FBG rh_FBG_TDI.mif -force
+fixelcrop ../log_fc TDI_rh_FBG/rh_FBG_TDI.mif logfc_rh_FBG -force
+tck2fixel lh_IFG_PRESMA.tck ../log_fc TDI_lh_IFG_PRESMA lh_IFG_PRESMA_TDI.mif
+fixelcrop ../log_fc TDI_lh_IFG_PRESMA/lh_IFG_PRESMA_TDI.mif logfc_lh_IFG_PRESMA
+tck2fixel rh_IFG_PRESMA.tck ../log_fc TDI_rh_IFG_PRESMA rh_IFG_PRESMA_TDI.mif
+fixelcrop ../log_fc TDI_rh_IFG_PRESMA/rh_IFG_PRESMA_TDI.mif logfc_rh_IFG_PRESMA
+tck2fixel lh_IFG_STN.tck ../log_fc TDI_lh_IFG_STN lh_IFG_STN_TDI.mif
+fixelcrop ../log_fc TDI_lh_IFG_STN/lh_IFG_STN_TDI.mif logfc_lh_IFG_STN
+tck2fixel rh_IFG_STN.tck ../log_fc TDI_rh_IFG_STN rh_IFG_STN_TDI.mif
+fixelcrop ../log_fc TDI_rh_IFG_STN/rh_IFG_STN_TDI.mif logfc_rh_IFG_STN
+tck2fixel lh_PRESMA_STN.tck ../log_fc TDI_lh_PRESMA_STN lh_PRESMA_STN_TDI.mif
+fixelcrop ../log_fc TDI_lh_PRESMA_STN/lh_PRESMA_STN_TDI.mif logfc_lh_PRESMA_STN
+tck2fixel rh_PRESMA_STN.tck ../log_fc TDI_rh_PRESMA_STN rh_PRESMA_STN_TDI.mif
+fixelcrop ../log_fc TDI_rh_PRESMA_STN/rh_PRESMA_STN_TDI.mif logfc_rh_PRESMA_STN
+
+
+
+****************************************************************************
+
+mkdir fixel_masks_fdc
+
+cp lh_FBG.tck ./fixel_masks_fdc/lh_FBG.tck
+cp rh_FBG.tck ./fixel_masks_fdc/rh_FBG.tck
+cp lh_IFG_PRESMA.tck ./fixel_masks_fdc/lh_IFG_PRESMA.tck
+cp rh_IFG_PRESMA.tck ./fixel_masks_fdc/rh_IFG_PRESMA.tck
+cp lh_IFG_STN.tck ./fixel_masks_fdc/lh_IFG_STN.tck
+cp rh_IFG_STN.tck ./fixel_masks_fdc/rh_IFG_STN.tck
+cp lh_PRESMA_STN.tck ./fixel_masks_fdc/lh_PRESMA_STN.tck
+cp rh_PRESMA_STN.tck ./fixel_masks_fdc/rh_PRESMA_STN.tck
+
+
+cd fixel_masks_fdc
+
+tck2fixel lh_FBG.tck ../fdc TDI_lh_FBG lh_FBG_TDI.mif -force
+fixelcrop ../fdc TDI_lh_FBG/lh_FBG_TDI.mif fdc_lh_FBG -force
+tck2fixel rh_FBG.tck ../fdc TDI_rh_FBG rh_FBG_TDI.mif -force
+fixelcrop ../fdc TDI_rh_FBG/rh_FBG_TDI.mif fdc_rh_FBG -force
+tck2fixel lh_IFG_PRESMA.tck ../fdc TDI_lh_IFG_PRESMA lh_IFG_PRESMA_TDI.mif
+fixelcrop ../fdc TDI_lh_IFG_PRESMA/lh_IFG_PRESMA_TDI.mif fdc_lh_IFG_PRESMA
+tck2fixel rh_IFG_PRESMA.tck ../fdc TDI_rh_IFG_PRESMA rh_IFG_PRESMA_TDI.mif
+fixelcrop ../fdc TDI_rh_IFG_PRESMA/rh_IFG_PRESMA_TDI.mif fdc_rh_IFG_PRESMA
+tck2fixel lh_IFG_STN.tck ../fdc TDI_lh_IFG_STN lh_IFG_STN_TDI.mif
+fixelcrop ../fdc TDI_lh_IFG_STN/lh_IFG_STN_TDI.mif fdc_lh_IFG_STN
+tck2fixel rh_IFG_STN.tck ../fdc TDI_rh_IFG_STN rh_IFG_STN_TDI.mif
+fixelcrop ../fdc TDI_rh_IFG_STN/rh_IFG_STN_TDI.mif fdc_rh_IFG_STN
+tck2fixel lh_PRESMA_STN.tck ../fdc TDI_lh_PRESMA_STN lh_PRESMA_STN_TDI.mif
+fixelcrop ../fdc TDI_lh_PRESMA_STN/lh_PRESMA_STN_TDI.mif fdc_lh_PRESMA_STN
+tck2fixel rh_PRESMA_STN.tck ../fdc TDI_rh_PRESMA_STN rh_PRESMA_STN_TDI.mif
+fixelcrop ../fdc TDI_rh_PRESMA_STN/rh_PRESMA_STN_TDI.mif fdc_rh_PRESMA_STN
+
+
+######################################################################################################################
+
+
+# MEAN FIXEL METRICS VALUES FOR EACH HEMISHPERE OF THE FRONTO-BASAL-GANGLIA CIRCUIT FOR EACH SUBJECT 
+
+
+FIBRE DENSITY
+
+cd fixel_masks_fd/fd_lh_FBG
+mkdir mean_FD_lh
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_lh/${i}_output.txt; done
+cat mean_FD_lh/*_output.txt > control_meanFD_lhFBG_output.txt
+
+cd fixel_masks_fd/fd_rh_FBG
+mkdir mean_FD_rh
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_rh/${i}_output.txt; done
+cat mean_FD_rh/*_output.txt > control_meanFD_rhFBG_output.txt
+
+cd fixel_masks_fd/fd_lh_IFG_STN
+mkdir mean_FD_lh_IFG_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_lh_IFG_STN/${i}_output.txt; done
+cat mean_FD_lh_IFG_STN/*_output.txt > control_meanFD_lh_IFG_STN_output.txt
+
+cd fixel_masks_fd/fd_rh_IFG_STN
+mkdir mean_FD_rh_IFG_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_rh_IFG_STN/${i}_output.txt; done
+cat mean_FD_rh_IFG_STN/*_output.txt > control_meanFD_rh_IFG_STN_output.txt
+
+cd fixel_masks_fd/fd_lh_IFG_PRESMA
+mkdir mean_FD_lh_IFG_PRESMA
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_lh_IFG_PRESMA/${i}_output.txt; done
+cat mean_FD_lh_IFG_PRESMA/*_output.txt > control_meanFD_lh_IFG_PRESMA_output.txt
+
+cd fixel_masks_fd/fd_rh_IFG_PRESMA
+mkdir mean_FD_rh_IFG_PRESMA
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_rh_IFG_PRESMA/${i}_output.txt; done
+cat mean_FD_rh_IFG_PRESMA/*_output.txt > control_meanFD_rh_IFG_PRESMA_output.txt
+
+cd fixel_masks_fd/fd_lh_PRESMA_STN
+mkdir mean_FD_lh_PRESMA_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_lh_PRESMA_STN/${i}_output.txt; done
+cat mean_FD_lh_PRESMA_STN/*_output.txt > control_meanFD_lh_PRESMA_STN_output.txt
+
+cd fixel_masks_fd/fd_rh_PRESMA_STN
+mkdir mean_FD_rh_PRESMA_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FD_rh_PRESMA_STN/${i}_output.txt; done
+cat mean_FD_rh_PRESMA_STN/*_output.txt > control_meanFD_rh_PRESMA_STN_output.txt
+
+
+
+*********************************************************************************
+
+
+LOG FIBRE CROSS-SECTION
+
+
+cd fixel_masks_logfc/logfc_lh_FBG
+mkdir mean_LOGFC_lh
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_lh/${i}_output.txt; done
+cat mean_LOGFC_lh/*_output.txt > control_meanLOGFC_lhFBG_output.txt
+
+cd fixel_masks_logfc/logfc_rh_FBG
+mkdir mean_LOGFC_rh
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_rh/${i}_output.txt; done
+cat mean_LOGFC_rh/*_output.txt > control_meanLOGFC_rhFBG_output.txt
+
+cd fixel_masks_logfc/logfc_lh_IFG_STN
+mkdir mean_LOGFC_lh_IFG_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_lh_IFG_STN/${i}_output.txt; done
+cat mean_LOGFC_lh_IFG_STN/*_output.txt > control_meanLOGFC_lh_IFG_STN_output.txt
+
+cd fixel_masks_logfc/logfc_rh_IFG_STN
+mkdir mean_LOGFC_rh_IFG_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_rh_IFG_STN/${i}_output.txt; done
+cat mean_LOGFC_rh_IFG_STN/*_output.txt > control_meanLOGFC_rh_IFG_STN_output.txt
+
+cd fixel_masks_logfc/logfc_lh_IFG_PRESMA
+mkdir mean_LOGFC_lh_IFG_PRESMA
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_lh_IFG_PRESMA/${i}_output.txt; done
+cat mean_LOGFC_lh_IFG_PRESMA/*_output.txt > control_meanLOGFC_lh_IFG_PRESMA_output.txt
+
+cd fixel_masks_logfc/logfc_rh_IFG_PRESMA
+mkdir mean_LOGFC_rh_IFG_PRESMA
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_rh_IFG_PRESMA/${i}_output.txt; done
+cat mean_LOGFC_rh_IFG_PRESMA/*_output.txt > control_meanLOGFC_rh_IFG_PRESMA_output.txt
+
+cd fixel_masks_logfc/logfc_lh_PRESMA_STN
+mkdir mean_LOGFC_lh_PRESMA_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_lh_PRESMA_STN/${i}_output.txt; done
+cat mean_LOGFC_lh_PRESMA_STN/*_output.txt > control_meanLOGFC_lh_PRESMA_STN_output.txt
+
+cd fixel_masks_logfc/logfc_rh_PRESMA_STN
+mkdir mean_LOGFC_rh_PRESMA_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_LOGFC_rh_PRESMA_STN/${i}_output.txt; done
+cat mean_LOGFC_rh_PRESMA_STN/*_output.txt > control_meanLOGFC_rh_PRESMA_STN_output.txt
+
+
+
+
+*********************************************************************************
+
+
+FIBRE DENSITY/CROSS-SECTION
+
+cd fixel_masks_fdc/fdc_lh_FBG
+mkdir mean_FDC_lh
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_lh/${i}_output.txt; done
+cat mean_FDC_lh/*_output.txt > control_meanFDC_lhFBG_output.txt
+
+cd fixel_masks_fdc/fdc_rh_FBG
+mkdir mean_FDC_rh
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_rh/${i}_output.txt; done
+cat mean_FDC_rh/*_output.txt > control_meanFDC_rhFBG_output.txt
+
+cd fixel_masks_fdc/fdc_lh_IFG_STN
+mkdir mean_FDC_lh_IFG_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_lh_IFG_STN/${i}_output.txt; done
+cat mean_FDC_lh_IFG_STN/*_output.txt > control_meanFDC_lh_IFG_STN_output.txt
+
+cd fixel_masks_fdc/fdc_rh_IFG_STN
+mkdir mean_FDC_rh_IFG_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_rh_IFG_STN/${i}_output.txt; done
+cat mean_FDC_rh_IFG_STN/*_output.txt > control_meanFDC_rh_IFG_STN_output.txt
+
+cd fixel_masks_fdc/fdc_lh_IFG_PRESMA
+mkdir mean_FDC_lh_IFG_PRESMA
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_lh_IFG_PRESMA/${i}_output.txt; done
+cat mean_FDC_lh_IFG_PRESMA/*_output.txt > control_meanFDC_lh_IFG_PRESMA_output.txt
+
+cd fixel_masks_fdc/fdc_rh_IFG_PRESMA
+mkdir mean_FDC_rh_IFG_PRESMA
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_rh_IFG_PRESMA/${i}_output.txt; done
+cat mean_FDC_rh_IFG_PRESMA/*_output.txt > control_meanFDC_rh_IFG_PRESMA_output.txt
+
+cd fixel_masks_fdc/fdc_lh_PRESMA_STN
+mkdir mean_FDC_lh_PRESMA_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_lh_PRESMA_STN/${i}_output.txt; done
+cat mean_FDC_lh_PRESMA_STN/*_output.txt > control_meanFDC_lh_PRESMA_STN_output.txt
+
+cd fixel_masks_fdc/fdc_rh_PRESMA_STN
+mkdir mean_FDC_rh_PRESMA_STN
+for i in sub-*.mif; do echo ${i}; mrstats ${i} > mean_FDC_rh_PRESMA_STN/${i}_output.txt; done
+cat mean_FDC_rh_PRESMA_STN/*_output.txt > control_meanFDC_rh_PRESMA_STN_output.txt
+
+
+
+
+######################################################################################################################
+
+# CREATE GLASS BRAIN FOR VISUALIZATION
+
+#run from top of subject folder
+
+mrmath */dwi_mask_in_template_space.mif mean mask_mean.mif
+mrgrid mask_mean.mif regrid -scale 4.0 mask_upsamp.mif
+mrfilter mask_upsamp.mif smooth -stdev 1 mask_upsamp_smooth.mif
+mrthreshold mask_upsamp_smooth.mif -abs 0.5 mask_upsamp_smooth_thresh.mif
+maskfilter mask_upsamp_smooth_thresh.mif dilate -npass 2 mask_upsamp_smooth_thresh_dilate.mif
+mrcalc mask_upsamp_smooth_thresh_dilate.mif mask_upsamp_smooth_thresh.mif -subtract outline_glass.mif
+maskfilter outline_glass.mif dilate glass_brain.mif
+
+Volume render the glass_brain
+ Tool > alpha
+
+######################################################################################################################
+
+# MEAN FRAMEWISE DISPLACEMENT 
+
+# copy raw dwi files & bvec/bval files into working directory
+bash batch_copy_rawdwi.sh
+
+# convert raw NIFTI files to MIF format:
+for i in `ls -d *`; do echo $i; mrconvert $i/"*dwi.nii.gz" $i/dwi_raw.mif -fslgrad $i/"*dwi.bvec" $i/"*dwi.bval"; done
+
+# extract all non-b0 images and concatenate them into a single file in NIFTI format:
+for i in `ls -d *`; do echo $i; dwiextract $i/dwi_raw.mif $i/dwi_raw_no_b0s.nii.gz -no_bzero; done
+
+# run fsl motion outliers script for framewise displacement rate:
+for i in `ls -d *`; do fsl_motion_outliers -i $i/dwi_raw_no_b0s.nii.gz -o $i/confound_file_$i -s $i/fd_$i.txt --fd; done
+mkdir ../motion
+mkdir ../motion/confounds
+for i in `ls -d *`; do cp $i/fd_$i.txt ../motion/fd_$i.txt; done
+for i in `ls -d *`; do cp $i/confound_file_$i ../motion/confounds/confound_file_$i; done
+
+
+# IN R 
+
+#load up some libraries:
+
+library (reshape) #load reshape library
+library (Hmisc) #required for %nin%
+library (plyr) #required for ddply
+library(psych) #required for descriptives
+library(ggplot2) #required for plotting
+library(tidyverse) #suite of tidy packages
+library(ggpubr) #to create pub ready plots
+library(knitr) #to create beautiful tables
+
+
+# FWD 
+
+# read all txt files into R
+temp = list.files(pattern="*.txt")
+for (i in 1:length(temp)) assign(temp[i], read.table(temp[i]))
+
+# remove first cell from each df - the first cell is not included in calculating FWD
+lst <- mget(ls(pattern='fd_'))
+lst <- lapply(lst, `[`, -c(1), )
+
+# put the newly created lists into a data frame
+df = as.data.frame(lst)
+
+# do summary stats for each subject
+sumstats = describe(df)
+
+write.csv(sumstats, "fwd_controls.csv", row.names = TRUE)
+
+
+######################################################################################################################
+
