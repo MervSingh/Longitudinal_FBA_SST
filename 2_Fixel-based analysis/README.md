@@ -1,4 +1,4 @@
-# NICAP_FBA
+# Fixel Based analysis
 
 Contains code for conducting tract of interest Fixel-based Analysis (FBA) in MRTrix3Tissue (https://3tissue.github.io/)
 
